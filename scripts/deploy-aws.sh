@@ -134,12 +134,12 @@ parse_arguments() {
 set_default_configuration() {
   OPENMODEL_AWS_REGION="${OPENMODEL_AWS_REGION:-us-east-1}"
   OPENMODEL_AWS_PROFILE="${OPENMODEL_AWS_PROFILE:-}"
-  OPENMODEL_AWS_ACCOUNT_ID="${OPENMODEL_AWS_ACCOUNT_ID:-REMOVED_AWS_ACCOUNT_ID}"
-  OPENMODEL_ROUTE53_ZONE_ID="${OPENMODEL_ROUTE53_ZONE_ID:-REMOVED_ROUTE53_ZONE_ID}"
+  OPENMODEL_AWS_ACCOUNT_ID="${OPENMODEL_AWS_ACCOUNT_ID:-}"
+  OPENMODEL_ROUTE53_ZONE_ID="${OPENMODEL_ROUTE53_ZONE_ID:-}"
   OPENMODEL_ROUTE53_ZONE_NAME="${OPENMODEL_ROUTE53_ZONE_NAME:-openmodel.sh}"
-  OPENMODEL_ROUTE53_EXPECTED_NAME_SERVERS="${OPENMODEL_ROUTE53_EXPECTED_NAME_SERVERS:-REMOVED_ROUTE53_NAME_SERVER_1,REMOVED_ROUTE53_NAME_SERVER_2,REMOVED_ROUTE53_NAME_SERVER_3,REMOVED_ROUTE53_NAME_SERVER_4}"
+  OPENMODEL_ROUTE53_EXPECTED_NAME_SERVERS="${OPENMODEL_ROUTE53_EXPECTED_NAME_SERVERS:-}"
   OPENMODEL_PROJECT_NAME="${OPENMODEL_PROJECT_NAME:-openmodel}"
-  OPENMODEL_TERRAFORM_STATE_BUCKET="${OPENMODEL_TERRAFORM_STATE_BUCKET:-openmodel-terraform-state-$OPENMODEL_AWS_ACCOUNT_ID}"
+  OPENMODEL_TERRAFORM_STATE_BUCKET="${OPENMODEL_TERRAFORM_STATE_BUCKET:-}"
   OPENMODEL_TERRAFORM_STATE_KEY="${OPENMODEL_TERRAFORM_STATE_KEY:-openmodel/production.tfstate}"
   OPENMODEL_TERRAFORM_BOOTSTRAP_STATE="${OPENMODEL_TERRAFORM_BOOTSTRAP_STATE:-1}"
   OPENMODEL_WEB_HOSTNAME="${OPENMODEL_WEB_HOSTNAME:-openmodel.sh}"
@@ -173,11 +173,11 @@ validate_configuration() {
   if [[ "$OPENMODEL_AWS_REGION" != "us-east-1" ]]; then
     fail_deployment "OPENMODEL_AWS_REGION must currently be us-east-1."
   fi
-  if [[ ! "$OPENMODEL_AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
-    fail_deployment "OPENMODEL_AWS_ACCOUNT_ID must be a 12-digit AWS account ID."
+  if [[ -n "$OPENMODEL_AWS_ACCOUNT_ID" && ! "$OPENMODEL_AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
+    fail_deployment "OPENMODEL_AWS_ACCOUNT_ID must be a 12-digit AWS account ID when provided."
   fi
-  if [[ ! "$OPENMODEL_ROUTE53_ZONE_ID" =~ ^Z[A-Z0-9]+$ ]]; then
-    fail_deployment "OPENMODEL_ROUTE53_ZONE_ID must be a valid Route 53 hosted-zone ID."
+  if [[ -n "$OPENMODEL_ROUTE53_ZONE_ID" && ! "$OPENMODEL_ROUTE53_ZONE_ID" =~ ^Z[A-Z0-9]+$ ]]; then
+    fail_deployment "OPENMODEL_ROUTE53_ZONE_ID must be a valid Route 53 hosted-zone ID when provided."
   fi
   if [[ ! "$OPENMODEL_ROUTE53_ZONE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
     fail_deployment "OPENMODEL_ROUTE53_ZONE_NAME must be a valid DNS zone name without a trailing dot."
@@ -185,13 +185,15 @@ validate_configuration() {
   if [[ -n "$OPENMODEL_ROUTE53_EXPECTED_NAME_SERVERS" && ! "$OPENMODEL_ROUTE53_EXPECTED_NAME_SERVERS" =~ ^[A-Za-z0-9.-]+(,[A-Za-z0-9.-]+)*$ ]]; then
     fail_deployment "OPENMODEL_ROUTE53_EXPECTED_NAME_SERVERS must be a comma-separated list of DNS names."
   fi
-  if [[ ! "$OPENMODEL_TERRAFORM_STATE_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ || "$OPENMODEL_TERRAFORM_STATE_BUCKET" == *'..'* || "$OPENMODEL_TERRAFORM_STATE_BUCKET" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  if [[ -n "$OPENMODEL_TERRAFORM_STATE_BUCKET" ]] && { [[ ! "$OPENMODEL_TERRAFORM_STATE_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] || [[ "$OPENMODEL_TERRAFORM_STATE_BUCKET" == *'..'* ]] || [[ "$OPENMODEL_TERRAFORM_STATE_BUCKET" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; }; then
     fail_deployment "OPENMODEL_TERRAFORM_STATE_BUCKET must be a valid S3 bucket name."
   fi
   if [[ -z "$OPENMODEL_TERRAFORM_STATE_KEY" || "$OPENMODEL_TERRAFORM_STATE_KEY" == /* ]]; then
     fail_deployment "OPENMODEL_TERRAFORM_STATE_KEY must be a non-empty relative object key."
   fi
-  validate_backend_string "OPENMODEL_TERRAFORM_STATE_BUCKET" "$OPENMODEL_TERRAFORM_STATE_BUCKET"
+  if [[ -n "$OPENMODEL_TERRAFORM_STATE_BUCKET" ]]; then
+    validate_backend_string "OPENMODEL_TERRAFORM_STATE_BUCKET" "$OPENMODEL_TERRAFORM_STATE_BUCKET"
+  fi
   validate_backend_string "OPENMODEL_TERRAFORM_STATE_KEY" "$OPENMODEL_TERRAFORM_STATE_KEY"
   validate_backend_string "OPENMODEL_AWS_REGION" "$OPENMODEL_AWS_REGION"
   validate_backend_string "OPENMODEL_AWS_PROFILE" "$OPENMODEL_AWS_PROFILE"
@@ -294,21 +296,42 @@ verify_aws_identity() {
   if [[ -n "$OPENMODEL_AWS_ACCOUNT_ID" && "$active_account_id" != "$OPENMODEL_AWS_ACCOUNT_ID" ]]; then
     fail_deployment "AWS credentials belong to account $active_account_id, not expected account $OPENMODEL_AWS_ACCOUNT_ID."
   fi
+  OPENMODEL_AWS_ACCOUNT_ID="$active_account_id"
+  if [[ -z "$OPENMODEL_TERRAFORM_STATE_BUCKET" ]]; then
+    OPENMODEL_TERRAFORM_STATE_BUCKET="openmodel-terraform-state-$OPENMODEL_AWS_ACCOUNT_ID"
+  fi
   log_message "AWS identity verified for account $active_account_id"
 }
 
 verify_route53_hosted_zone() {
   local actual_zone_name
+  local discovered_zone_id
   local normalized_actual_zone_name
   local normalized_expected_zone_name
   local actual_name_servers
   local expected_name_servers
 
+  if [[ -z "$OPENMODEL_ROUTE53_ZONE_ID" ]]; then
+    discovered_zone_id="$(
+      aws route53 list-hosted-zones-by-name \
+        --dns-name "$OPENMODEL_ROUTE53_ZONE_NAME" \
+        --query "HostedZones[?Name=='${OPENMODEL_ROUTE53_ZONE_NAME%.}.'].Id | [0]" \
+        --output text
+    )"
+    discovered_zone_id="${discovered_zone_id#/hostedzone/}"
+    if [[ -z "$discovered_zone_id" || "$discovered_zone_id" == "None" ]]; then
+      fail_deployment "No public Route 53 hosted zone was found for $OPENMODEL_ROUTE53_ZONE_NAME. Set OPENMODEL_ROUTE53_ZONE_ID explicitly."
+    fi
+    OPENMODEL_ROUTE53_ZONE_ID="$discovered_zone_id"
+  fi
+
   actual_zone_name="$(aws route53 get-hosted-zone --id "$OPENMODEL_ROUTE53_ZONE_ID" --query 'HostedZone.Name' --output text)"
   normalized_actual_zone_name="${actual_zone_name%.}"
   normalized_expected_zone_name="${OPENMODEL_ROUTE53_ZONE_NAME%.}"
 
-  if [[ "${normalized_actual_zone_name,,}" != "${normalized_expected_zone_name,,}" ]]; then
+  normalized_actual_zone_name="$(printf '%s' "$normalized_actual_zone_name" | tr '[:upper:]' '[:lower:]')"
+  normalized_expected_zone_name="$(printf '%s' "$normalized_expected_zone_name" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$normalized_actual_zone_name" != "$normalized_expected_zone_name" ]]; then
     fail_deployment "Route 53 hosted zone $OPENMODEL_ROUTE53_ZONE_ID is for $actual_zone_name, not $OPENMODEL_ROUTE53_ZONE_NAME."
   fi
 
@@ -605,6 +628,7 @@ run_remote_deployment() {
   configure_aws_environment
   verify_aws_identity
   verify_route53_hosted_zone
+  validate_configuration
   ensure_terraform_state_bucket
   export_terraform_variables
   initialize_terraform

@@ -157,3 +157,7 @@ aws-config.local
 
 .deploy/aws-backend.hcl
 .deploy/cloudfront-invalidation.json
+# Local Git history-redaction inputs
+.history-redactions
+.history-redactions.*
+*.history-redactions

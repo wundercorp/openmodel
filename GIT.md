@@ -69,3 +69,16 @@ Or compose them:
   --git-remote-url git@github.com:wundercorp/openmodel.git \
   --yes
 ```
+
+## Purge deployment identifiers from existing history
+
+After committing the sanitized examples and scripts, install `git-filter-repo` and rewrite the repository history:
+
+```bash
+brew install git-filter-repo
+./purge-git-history.sh --push
+```
+
+The command reads the deployment identifiers from the ignored `.env.deploy`, redacts them from every local branch and tag, restores the `origin` remote if `git-filter-repo` removes it, and force-pushes the rewritten history.
+
+Every collaborator must discard old clones or re-clone after the force-push. Rotate any actual token, password, private key, or AWS credential that was ever committed; rewriting Git history does not revoke credentials or remove copies from forks and caches.

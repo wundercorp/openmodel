@@ -4,9 +4,9 @@
 
 The `openmodel.sh` public hosted zone is already in Amazon Route 53:
 
-- AWS account: `REMOVED_AWS_ACCOUNT_ID`
-- Hosted zone: `REMOVED_ROUTE53_ZONE_ID`
-- Assigned name servers: `REMOVED_ROUTE53_NAME_SERVER_1`, `REMOVED_ROUTE53_NAME_SERVER_2`, `REMOVED_ROUTE53_NAME_SERVER_3`, and `REMOVED_ROUTE53_NAME_SERVER_4`
+- AWS account: `<YOUR_AWS_ACCOUNT_ID>`
+- Hosted zone: `<YOUR_ROUTE53_HOSTED_ZONE_ID>`
+- Assigned name servers: `<ROUTE53_NAME_SERVER_1>`, `<ROUTE53_NAME_SERVER_2>`, `<ROUTE53_NAME_SERVER_3>`, and `<ROUTE53_NAME_SERVER_4>`
 - Website: `openmodel.sh`
 - API: `api.openmodel.sh`
 
@@ -46,14 +46,13 @@ aws sso login --profile wundercorp
 aws sts get-caller-identity --profile wundercorp
 ```
 
-The returned account must be `REMOVED_AWS_ACCOUNT_ID`.
+The returned account must be `<YOUR_AWS_ACCOUNT_ID>`.
 
 ## Configure deployment
 
-Create the private deployment file:
+Use the private `.env.deploy` file directly and keep it at mode `600`:
 
 ```bash
-cp env.deploy.example .env.deploy
 chmod 600 .env.deploy
 ```
 
@@ -62,13 +61,13 @@ For an AWS profile, set:
 ```dotenv
 OPENMODEL_DEPLOY_PROVIDER="aws"
 OPENMODEL_AWS_PROFILE="wundercorp"
-OPENMODEL_AWS_ACCOUNT_ID="REMOVED_AWS_ACCOUNT_ID"
-OPENMODEL_ROUTE53_ZONE_ID="REMOVED_ROUTE53_ZONE_ID"
+OPENMODEL_AWS_ACCOUNT_ID="<YOUR_AWS_ACCOUNT_ID>"
+OPENMODEL_ROUTE53_ZONE_ID="<YOUR_ROUTE53_HOSTED_ZONE_ID>"
 OPENMODEL_ROUTE53_ZONE_NAME="openmodel.sh"
-OPENMODEL_ROUTE53_EXPECTED_NAME_SERVERS="REMOVED_ROUTE53_NAME_SERVER_1,REMOVED_ROUTE53_NAME_SERVER_2,REMOVED_ROUTE53_NAME_SERVER_3,REMOVED_ROUTE53_NAME_SERVER_4"
+OPENMODEL_ROUTE53_EXPECTED_NAME_SERVERS="<ROUTE53_NAME_SERVER_1>,<ROUTE53_NAME_SERVER_2>,<ROUTE53_NAME_SERVER_3>,<ROUTE53_NAME_SERVER_4>"
 ```
 
-The account ID, hosted-zone ID, zone name, and assigned name servers identify deployment targets and are not credentials. The deploy script verifies them before creating or changing resources. Keep the file private because it may also contain an npm token.
+Keep account IDs, hosted-zone IDs, state-bucket names, delegation sets, and tokens only in the ignored `.env.deploy` or protected CI settings. The deploy script verifies configured targets before changing resources. The account ID can be discovered from the active AWS identity, and the hosted-zone ID can be discovered from the zone name when omitted.
 
 Do not add these values to the file:
 
@@ -97,7 +96,7 @@ This installs locked dependencies, checks source files, runs tests, builds the w
 The command verifies the AWS account, hosted-zone name, and assigned Route 53 name servers before planning. On the first run it can create the Terraform state bucket named:
 
 ```text
-REMOVED_TERRAFORM_STATE_BUCKET
+openmodel-terraform-state-<YOUR_AWS_ACCOUNT_ID>
 ```
 
 The state object key defaults to:
@@ -243,7 +242,7 @@ The deploying identity needs permission for:
 - S3 bucket and object management
 - CloudFront distributions, origin access controls, policies, and invalidations
 - ACM certificates
-- Route 53 records in hosted zone `REMOVED_ROUTE53_ZONE_ID`
+- Route 53 records in hosted zone `<YOUR_ROUTE53_HOSTED_ZONE_ID>`
 - Lambda functions and permissions
 - API Gateway v2 APIs and custom domains
 - DynamoDB tables
@@ -283,7 +282,7 @@ Verify the hosted zone:
 
 ```bash
 aws route53 get-hosted-zone \
-  --id REMOVED_ROUTE53_ZONE_ID \
+  --id <YOUR_ROUTE53_HOSTED_ZONE_ID> \
   --profile wundercorp
 ```
 
@@ -297,7 +296,7 @@ Inspect Route 53 records:
 
 ```bash
 aws route53 list-resource-record-sets \
-  --hosted-zone-id REMOVED_ROUTE53_ZONE_ID \
+  --hosted-zone-id <YOUR_ROUTE53_HOSTED_ZONE_ID> \
   --profile wundercorp
 ```
 
