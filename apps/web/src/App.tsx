@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Card, CodeBlock } from "./components/ui";
 import {
   beginLogin,
@@ -116,7 +116,28 @@ export function App() {
   }, []);
 
   const synchronizeSession = useCallback(() => {
-    setSession(getSession());
+    const storedSession = getSession();
+
+    setSession((currentSession) => {
+      if (!storedSession) {
+        if (currentSession) {
+          return undefined;
+        }
+
+        return currentSession;
+      }
+
+      if (
+        currentSession?.access_token === storedSession.access_token &&
+        currentSession?.id_token === storedSession.id_token &&
+        currentSession?.refresh_token === storedSession.refresh_token &&
+        currentSession?.expiresAt === storedSession.expiresAt
+      ) {
+        return currentSession;
+      }
+
+      return storedSession;
+    });
   }, []);
 
   const currentPath = window.location.pathname;
@@ -445,13 +466,17 @@ function DashboardPage({
   const [dashboardUser, setDashboardUser] = useState<DashboardUser>();
   const [gatewayRecords, setGatewayRecords] = useState<GatewayRecord[]>([]);
   const [dashboardError, setDashboardError] = useState<string>();
+  const dashboardRequestId = useRef(0);
   const localUser = useMemo(() => getSessionUser(session), [session]);
+  const sessionAccessToken = session?.access_token;
 
   const loadDashboard = useCallback(async () => {
-    if (!session) {
+    if (!sessionAccessToken) {
       return;
     }
 
+    const requestId = dashboardRequestId.current + 1;
+    dashboardRequestId.current = requestId;
     setLoadState("loading");
     setDashboardError(undefined);
 
@@ -459,6 +484,10 @@ function DashboardPage({
       getDashboardUser(),
       getGatewayRegistry(),
     ]);
+
+    if (requestId !== dashboardRequestId.current) {
+      return;
+    }
 
     if (userResult.status === "fulfilled") {
       setDashboardUser(userResult.value);
@@ -492,10 +521,14 @@ function DashboardPage({
     }
 
     setLoadState("ready");
-  }, [onSessionChange, session]);
+  }, [onSessionChange, sessionAccessToken]);
 
   useEffect(() => {
     void loadDashboard();
+
+    return () => {
+      dashboardRequestId.current += 1;
+    };
   }, [loadDashboard]);
 
   if (!session) {
