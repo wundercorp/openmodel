@@ -202,7 +202,7 @@ http://localhost:5173
 
 The landing page, themes, accents, gateway content, and API examples work without signing in.
 
-The sign-in button uses `auth.wundercorp.co`. Browser authentication requires the identity-provider client to allow this callback:
+The sign-in button uses the configured Cognito domain. The Cognito app client must allow this callback:
 
 ```text
 http://localhost:5173/auth/callback
@@ -231,7 +231,7 @@ curl http://127.0.0.1:8787/health
 curl http://127.0.0.1:8787/v1/gateways
 ```
 
-The protected endpoints continue to validate real RS256 access tokens from the configured issuer. To test them locally, obtain a token whose issuer and audience match the Worker configuration:
+The protected endpoints continue to validate real RS256 access tokens from the configured issuer. For Cognito, set `AUTH_AUDIENCE` to the generated app client ID and obtain an access token whose `client_id` matches that value:
 
 ```bash
 curl http://127.0.0.1:8787/v1/me \
@@ -319,7 +319,7 @@ Auth audience:    https://api.openmodel.sh
 Override them from the shell when needed:
 
 ```bash
-OPENMODEL_WEB_AUTH_CLIENT_ID=openmodel-web-local \
+OPENMODEL_WEB_AUTH_CLIENT_ID=replace-with-cognito-app-client-id \
 OPENMODEL_WEB_REDIRECT_URI=http://localhost:8080/auth/callback \
 OPENMODEL_CLOUD_API_URL=http://localhost:8787 \
 docker compose -f deploy/docker/compose.yaml up --build

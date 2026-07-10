@@ -13,7 +13,13 @@ interface JwtHeader {
 
 interface JwtPayload {
   iss: string;
-  aud: string | string[];
+  aud?: string | string[];
+  client_id?: string;
+  azp?: string;
+  token_use?: string;
+  username?: string;
+  "cognito:username"?: string;
+  "cognito:groups"?: string[];
   sub: string;
   exp: number;
   nbf?: number;
@@ -48,7 +54,16 @@ export default {
       if (request.method === 'GET' && url.pathname === '/v1/gateways') return json({ data: await listGateways(env) }, 200, corsHeaders);
       const user = await authenticate(request, env);
       if (request.method === 'GET' && url.pathname === '/v1/me') {
-        return json({ id: user.sub, email: user.email, name: user.name, scope: user.scope, permissions: user.permissions ?? [] }, 200, corsHeaders);
+        return json({
+          id: user.sub,
+          email: user.email,
+          name: user.name,
+          username: user.username ?? user['cognito:username'],
+          scope: user.scope,
+          permissions: user.permissions ?? [],
+          groups: Array.isArray(user['cognito:groups']) ? user['cognito:groups'] : [],
+          clientId: user.client_id ?? user.azp ?? (Array.isArray(user.aud) ? user.aud[0] : user.aud)
+        }, 200, corsHeaders);
       }
       if (request.method === 'POST' && url.pathname === '/v1/gateways') {
         requirePermission(user, 'gateways:write');
@@ -77,8 +92,16 @@ async function authenticate(request: Request, env: Env): Promise<JwtPayload> {
   if (header.alg !== 'RS256') throw new HttpError(401, `Unsupported token algorithm ${header.alg}.`);
   const issuer = env.AUTH_ISSUER.replace(/\/$/, '');
   if (payload.iss.replace(/\/$/, '') !== issuer) throw new HttpError(401, 'Token issuer did not match.');
-  const audience = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-  if (!audience.includes(env.AUTH_AUDIENCE)) throw new HttpError(401, 'Token audience did not match.');
+  const expectedAudiences = env.AUTH_AUDIENCE.split(',').map((value) => value.trim()).filter(Boolean);
+  const presentedAudiences = [
+    ...(Array.isArray(payload.aud) ? payload.aud : [payload.aud]),
+    payload.client_id,
+    payload.azp
+  ].filter((value): value is string => typeof value === 'string');
+  if (!expectedAudiences.some((expectedAudience) => presentedAudiences.includes(expectedAudience))) {
+    throw new HttpError(401, 'Token client or audience did not match.');
+  }
+  if (payload.token_use && payload.token_use !== 'access') throw new HttpError(401, 'An access token is required.');
   const now = Math.floor(Date.now() / 1000);
   if (payload.exp <= now) throw new HttpError(401, 'Access token has expired.');
   if (payload.nbf && payload.nbf > now + 30) throw new HttpError(401, 'Access token is not active yet.');
@@ -143,8 +166,9 @@ function requireString(value: unknown, field: string) {
 
 function requirePermission(payload: JwtPayload, permission: string) {
   const permissions = payload.permissions ?? [];
-  const scopes = String(payload.scope ?? '').split(/\s+/);
-  if (!permissions.includes(permission) && !scopes.includes(permission)) throw new HttpError(403, `Permission ${permission} is required.`);
+  const scopes = String(payload.scope ?? '').split(/\s+/).filter(Boolean);
+  const hasScope = scopes.some((scope) => scope === permission || scope.endsWith(`/${permission}`));
+  if (!permissions.includes(permission) && !hasScope) throw new HttpError(403, `Permission ${permission} is required.`);
 }
 
 function createCorsHeaders(origin: string | null, allowedOriginsValue: string) {

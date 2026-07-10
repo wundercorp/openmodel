@@ -144,9 +144,11 @@ set_default_configuration() {
   OPENMODEL_TERRAFORM_BOOTSTRAP_STATE="${OPENMODEL_TERRAFORM_BOOTSTRAP_STATE:-1}"
   OPENMODEL_WEB_HOSTNAME="${OPENMODEL_WEB_HOSTNAME:-openmodel.sh}"
   OPENMODEL_API_HOSTNAME="${OPENMODEL_API_HOSTNAME:-api.openmodel.sh}"
-  OPENMODEL_AUTH_ISSUER="${OPENMODEL_AUTH_ISSUER:-https://auth.wundercorp.co}"
-  OPENMODEL_AUTH_AUDIENCE="${OPENMODEL_AUTH_AUDIENCE:-https://api.openmodel.sh}"
-  OPENMODEL_WEB_AUTH_CLIENT_ID="${OPENMODEL_WEB_AUTH_CLIENT_ID:-openmodel-web}"
+  OPENMODEL_AUTH_ISSUER="${OPENMODEL_AUTH_ISSUER:-}"
+  OPENMODEL_AUTH_DOMAIN="${OPENMODEL_AUTH_DOMAIN:-}"
+  OPENMODEL_WEB_AUTH_CLIENT_ID="${OPENMODEL_WEB_AUTH_CLIENT_ID:-}"
+  OPENMODEL_AUTH_AUDIENCE="${OPENMODEL_AUTH_AUDIENCE:-$OPENMODEL_WEB_AUTH_CLIENT_ID}"
+  OPENMODEL_WEB_AUTH_SCOPES="${OPENMODEL_WEB_AUTH_SCOPES:-openid profile email}"
   OPENMODEL_WEB_URL="${OPENMODEL_WEB_URL:-https://$OPENMODEL_WEB_HOSTNAME}"
   OPENMODEL_CLOUD_API_URL="${OPENMODEL_CLOUD_API_URL:-https://$OPENMODEL_API_HOSTNAME}"
   OPENMODEL_ALLOWED_ORIGINS="${OPENMODEL_ALLOWED_ORIGINS:-$OPENMODEL_WEB_URL}"
@@ -172,6 +174,18 @@ validate_backend_string() {
 validate_configuration() {
   if [[ "$OPENMODEL_AWS_REGION" != "us-east-1" ]]; then
     fail_deployment "OPENMODEL_AWS_REGION must currently be us-east-1."
+  fi
+  if [[ -z "$OPENMODEL_AUTH_ISSUER" ]]; then
+    fail_deployment "OPENMODEL_AUTH_ISSUER must be the Cognito user-pool issuer URL."
+  fi
+  if [[ -z "$OPENMODEL_AUTH_DOMAIN" ]]; then
+    fail_deployment "OPENMODEL_AUTH_DOMAIN must be the Cognito hosted or custom domain."
+  fi
+  if [[ -z "$OPENMODEL_WEB_AUTH_CLIENT_ID" || "$OPENMODEL_WEB_AUTH_CLIENT_ID" == "openmodel-web" ]]; then
+    fail_deployment "OPENMODEL_WEB_AUTH_CLIENT_ID must be the generated Cognito app client ID, not the app client name."
+  fi
+  if [[ -z "$OPENMODEL_AUTH_AUDIENCE" ]]; then
+    fail_deployment "OPENMODEL_AUTH_AUDIENCE must contain the Cognito app client ID accepted by the API."
   fi
   if [[ -n "$OPENMODEL_AWS_ACCOUNT_ID" && ! "$OPENMODEL_AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
     fail_deployment "OPENMODEL_AWS_ACCOUNT_ID must be a 12-digit AWS account ID when provided."
@@ -281,10 +295,12 @@ install_dependencies() {
 build_website() {
   log_message "Building the production website"
   VITE_AUTH_ISSUER="$OPENMODEL_AUTH_ISSUER" \
+  VITE_AUTH_DOMAIN="$OPENMODEL_AUTH_DOMAIN" \
   VITE_AUTH_CLIENT_ID="$OPENMODEL_WEB_AUTH_CLIENT_ID" \
-  VITE_AUTH_AUDIENCE="$OPENMODEL_AUTH_AUDIENCE" \
   VITE_AUTH_REDIRECT_URI="$OPENMODEL_WEB_URL/auth/callback" \
-  VITE_CLOUD_API_URL="$OPENMODEL_CLOUD_API_URL" \
+  VITE_AUTH_LOGOUT_URI="$OPENMODEL_WEB_URL" \
+  VITE_AUTH_SCOPES="$OPENMODEL_WEB_AUTH_SCOPES" \
+  VITE_API_URL="$OPENMODEL_CLOUD_API_URL" \
   run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" run build --workspace @wundercorp/openmodel-web
 }
 

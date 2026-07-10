@@ -57,20 +57,22 @@ Compose Git and deployment only when desired:
 ## Browser build variables
 
 ```text
-VITE_AUTH_ISSUER=https://auth.wundercorp.co
-VITE_AUTH_CLIENT_ID=openmodel-web
-VITE_AUTH_AUDIENCE=https://api.openmodel.sh
+VITE_AUTH_ISSUER=https://cognito-idp.us-east-1.amazonaws.com/us-east-1_EXAMPLE
+VITE_AUTH_DOMAIN=https://auth.wundercorp.co
+VITE_AUTH_CLIENT_ID=replace-with-cognito-app-client-id
 VITE_AUTH_REDIRECT_URI=https://openmodel.sh/auth/callback
-VITE_CLOUD_API_URL=https://api.openmodel.sh
+VITE_AUTH_LOGOUT_URI=https://openmodel.sh
+VITE_AUTH_SCOPES=openid profile email
+VITE_API_URL=https://api.openmodel.sh
 ```
 
-These are public browser configuration values. Never place secrets in `VITE_*` variables.
+These are public browser configuration values. Never place secrets in `VITE_*` variables. The Cognito web app client must not have a client secret.
 
 ## Lambda variables
 
 ```text
-AUTH_ISSUER=https://auth.wundercorp.co
-AUTH_AUDIENCE=https://api.openmodel.sh
+AUTH_ISSUER=https://cognito-idp.us-east-1.amazonaws.com/us-east-1_EXAMPLE
+AUTH_AUDIENCE=replace-with-cognito-app-client-id
 ALLOWED_ORIGINS=https://openmodel.sh
 GATEWAY_REGISTRY_TABLE=openmodel-gateway-registry
 ```
@@ -108,3 +110,5 @@ Use that provider only with an intentionally supported DNS topology. The Route 5
 ## Rollback
 
 For the website, restore a previous S3 object version or redeploy a prior Git commit and invalidate CloudFront. For the Lambda API, redeploy a prior Git commit. Use a reviewed Terraform revert for infrastructure changes and publish a new corrected npm version rather than trying to overwrite an immutable release.
+
+See `docs/cognito-dashboard.md` for the complete Cognito callback, sign-out, local development, and dashboard setup.

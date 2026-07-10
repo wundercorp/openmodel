@@ -31,8 +31,11 @@ export async function handler(event) {
         id: user.sub,
         email: user.email,
         name: user.name,
+        username: user.username ?? user['cognito:username'],
         scope: user.scope,
-        permissions: user.permissions ?? []
+        permissions: user.permissions ?? [],
+        groups: Array.isArray(user['cognito:groups']) ? user['cognito:groups'] : [],
+        clientId: user.client_id ?? user.azp ?? (Array.isArray(user.aud) ? user.aud[0] : user.aud)
       }, corsHeaders);
     }
 
@@ -81,10 +84,20 @@ async function authenticate(authorizationHeader) {
     throw new HttpError(401, 'Token issuer did not match.');
   }
 
-  const expectedAudience = requireEnvironmentVariable('AUTH_AUDIENCE');
-  const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-  if (!audiences.includes(expectedAudience)) {
-    throw new HttpError(401, 'Token audience did not match.');
+  const expectedAudiences = requireEnvironmentVariable('AUTH_AUDIENCE')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const presentedAudiences = [
+    ...(Array.isArray(payload.aud) ? payload.aud : [payload.aud]),
+    payload.client_id,
+    payload.azp
+  ].filter((value) => typeof value === 'string');
+  if (!expectedAudiences.some((expectedAudience) => presentedAudiences.includes(expectedAudience))) {
+    throw new HttpError(401, 'Token client or audience did not match.');
+  }
+  if (payload.token_use && payload.token_use !== 'access') {
+    throw new HttpError(401, 'An access token is required.');
   }
 
   const currentUnixTime = Math.floor(Date.now() / 1000);
@@ -198,8 +211,9 @@ function validateGatewaySubmission(input) {
 
 function requirePermission(payload, permission) {
   const permissions = payload.permissions ?? [];
-  const scopes = String(payload.scope ?? '').split(/\s+/);
-  if (!permissions.includes(permission) && !scopes.includes(permission)) {
+  const scopes = String(payload.scope ?? '').split(/\s+/).filter(Boolean);
+  const hasScope = scopes.some((scope) => scope === permission || scope.endsWith(`/${permission}`));
+  if (!permissions.includes(permission) && !hasScope) {
     throw new HttpError(403, `Permission ${permission} is required.`);
   }
 }
