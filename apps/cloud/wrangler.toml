@@ -1,0 +1,9 @@
+name = "openmodel-cloud"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+workers_dev = true
+
+[vars]
+AUTH_ISSUER = "https://auth.wundercorp.co"
+AUTH_AUDIENCE = "https://api.openmodel.sh"
+ALLOWED_ORIGINS = "https://openmodel.sh,http://localhost:5173"

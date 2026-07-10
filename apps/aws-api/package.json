@@ -1,0 +1,18 @@
+{
+  "name": "@wundercorp/openmodel-aws-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.mjs --bundle --platform=node --target=node22 --format=esm --outfile=dist/index.mjs",
+    "check": "node --check src/index.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "3.1084.0",
+    "@aws-sdk/lib-dynamodb": "3.1084.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
+  }
+}

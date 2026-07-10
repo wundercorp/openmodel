@@ -1,0 +1,24 @@
+name: Gateway proposal
+description: Propose a new model catalog or provider gateway
+body:
+  - type: input
+    attributes:
+      label: Gateway or provider
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reference format
+      description: Show the proposed URI scheme or identifier format.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Capabilities
+      description: Describe resolve, download, native pull, chat, catalog, or auth needs.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Portability and licensing
+      description: Explain supported model formats, access restrictions, and licensing considerations.

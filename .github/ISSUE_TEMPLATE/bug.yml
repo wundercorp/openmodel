@@ -1,0 +1,26 @@
+name: Bug report
+description: Report reproducible OpenModel behavior
+body:
+  - type: textarea
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction
+      description: Include commands, model reference shape, runtime, and sanitized output.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: OpenModel version
+  - type: input
+    attributes:
+      label: Node and operating system
+  - type: checkboxes
+    attributes:
+      label: Safety
+      options:
+        - label: I removed access tokens, credentials, signed URLs, and private model data.
+          required: true

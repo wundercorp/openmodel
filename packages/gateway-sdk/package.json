@@ -1,0 +1,24 @@
+{
+  "name": "@wundercorp/openmodel-gateway-sdk",
+  "version": "0.1.0",
+  "description": "Stable gateway authoring contract for OpenModel.",
+  "type": "module",
+  "exports": "./src/index.js",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check src/index.js",
+    "test": "node --test",
+    "build": "node --check src/index.js"
+  },
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

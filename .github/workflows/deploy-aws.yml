@@ -1,0 +1,61 @@
+name: Deploy AWS production
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_npm:
+        description: Publish the gateway SDK and CLI after deployment
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  OPENMODEL_DEPLOY_PROVIDER: aws
+  OPENMODEL_AWS_REGION: us-east-1
+  OPENMODEL_AWS_ACCOUNT_ID: "REMOVED_AWS_ACCOUNT_ID"
+  OPENMODEL_ROUTE53_ZONE_ID: REMOVED_ROUTE53_ZONE_ID
+  OPENMODEL_TERRAFORM_STATE_BUCKET: REMOVED_TERRAFORM_STATE_BUCKET
+  OPENMODEL_TERRAFORM_STATE_KEY: openmodel/production.tfstate
+  OPENMODEL_TERRAFORM_BOOTSTRAP_STATE: "1"
+  OPENMODEL_WEB_HOSTNAME: openmodel.sh
+  OPENMODEL_API_HOSTNAME: api.openmodel.sh
+  OPENMODEL_AUTH_ISSUER: https://auth.wundercorp.co
+  OPENMODEL_AUTH_AUDIENCE: https://api.openmodel.sh
+  OPENMODEL_WEB_AUTH_CLIENT_ID: openmodel-web
+  OPENMODEL_ALLOWED_ORIGINS: https://openmodel.sh
+  OPENMODEL_WEB_URL: https://openmodel.sh
+  OPENMODEL_CLOUD_API_URL: https://api.openmodel.sh
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6.2.2
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+          allowed-account-ids: "REMOVED_AWS_ACCOUNT_ID"
+      - name: Deploy
+        shell: bash
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          deployment_arguments=(--yes)
+          if [[ "${{ inputs.publish_npm }}" == "true" ]]; then
+            deployment_arguments+=(--publish-npm)
+          fi
+          ./deploy.sh "${deployment_arguments[@]}"

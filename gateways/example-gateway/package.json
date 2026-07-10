@@ -1,0 +1,21 @@
+{
+  "name": "@wundercorp/openmodel-gateway-example",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reference implementation for third-party OpenModel gateways.",
+  "type": "module",
+  "exports": "./src/index.js",
+  "openmodel": {
+    "kind": "gateway",
+    "apiVersion": 1
+  },
+  "scripts": {
+    "check": "node --check src/index.js",
+    "test": "node --test",
+    "build": "node --check src/index.js"
+  },
+  "dependencies": {
+    "@wundercorp/openmodel-gateway-sdk": "0.1.0"
+  },
+  "license": "Apache-2.0"
+}
