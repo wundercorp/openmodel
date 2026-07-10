@@ -11,6 +11,10 @@ Completed successfully:
 - AWS Lambda bundle build
 - Cloudflare Worker dry-run bundle
 - npm publish dry runs for the gateway SDK and CLI
+- Semantic version increment simulation for CLI-only, SDK-dependent, combined, and prerelease releases
+- Package-lock synchronization and file-permission preservation during version increments
+- One-shot release commit and tag simulation in a temporary Git repository
+- Idempotent npm publication dry run with release-tag validation
 - Packed CLI installation exposing only the `om` executable
 - Packed third-party gateway installation and removal through `om gateway`
 - End-to-end CLI pull, list, serve, model metadata, and removal smoke tests

@@ -118,6 +118,28 @@ npm run build
 
 See `LOCAL.md` for complete CLI, website, cloud API, Docker Compose, authentication, gateway-plugin, and pre-deployment instructions.
 
+## Package releases
+
+Preview the next CLI patch version without changing files:
+
+```bash
+npm run version:bump -- patch --package cli --dry-run
+```
+
+Create, validate, commit, push, publish, and tag a CLI patch release:
+
+```bash
+./release.sh patch \
+  --package cli \
+  --commit \
+  --push \
+  --publish \
+  --tag \
+  --yes
+```
+
+SDK increments automatically update the CLI dependency and give the CLI its own release bump. See `RELEASING.md` for prereleases, GitHub tag publication, and all available options.
+
 ## Deployment
 
 The production domain is hosted in Route 53, so AWS is the default provider.

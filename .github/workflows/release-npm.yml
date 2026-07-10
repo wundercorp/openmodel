@@ -22,9 +22,6 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
-      - run: npm publish --workspace @wundercorp/openmodel-gateway-sdk --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - run: npm publish --workspace @wundercorp/openmodel --access public --provenance
+      - run: npm run release:publish -- --provenance --require-tag-match
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

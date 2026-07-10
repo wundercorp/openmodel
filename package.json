@@ -24,10 +24,16 @@
     "repo:init": "bash scripts/git-init.sh",
     "repo:push": "bash scripts/git-push.sh",
     "deploy:aws": "bash scripts/deploy.sh --provider aws",
-    "deploy:cloudflare": "bash scripts/deploy.sh --provider cloudflare"
+    "deploy:cloudflare": "bash scripts/deploy.sh --provider cloudflare",
+    "version:bump": "node scripts/version-bump.mjs",
+    "release:auto": "bash scripts/release.sh",
+    "release:publish": "node scripts/publish-npm.mjs"
   },
   "engines": {
     "node": ">=20.19.0"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
 }

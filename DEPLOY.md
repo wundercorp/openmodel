@@ -156,6 +156,14 @@ Then run:
 
 The gateway SDK is published before the CLI. Existing versions are detected and skipped because npm versions are immutable.
 
+`deploy.sh` publishes the versions already recorded in the package manifests; it does not change versions. Use the separate release incrementer before deployment when a new npm version is required:
+
+```bash
+./release.sh patch --package cli --commit --push --publish --tag --yes
+```
+
+See `RELEASING.md` for SDK, minor, major, and prerelease releases.
+
 To deploy the site and API without npm publication:
 
 ```bash
