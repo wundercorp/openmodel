@@ -28,7 +28,7 @@ Options:
   --tag                  Create v<CLI version> after publication.
   --push                 Push the release commit and optional tag.
   --publish              Publish unpublished npm package versions.
-  --provenance           Request npm provenance during publication.
+  --provenance           Request npm provenance in supported CI only.
   --skip-validation      Skip source checks, tests, and publish dry runs.
   --dry-run              Show the version changes without modifying files.
   --yes                  Skip the release confirmation prompt.

@@ -10,6 +10,7 @@ import { selectRuntime, runtimes } from './runtimes/index.js';
 import { startLocalServer } from './server/http.js';
 import { login, logout, whoami } from './lib/auth.js';
 import { runProcess } from './lib/process.js';
+import { printOpenModelBanner } from './ui/banner.mjs';
 
 const helpText = `om <command> [options]
 
@@ -37,6 +38,7 @@ References:
 export async function main(argv) {
   const [command = 'help', ...rest] = argv;
   const { positionals, flags } = parseArgs(rest);
+  if (command === 'help' || command === '--help' || command === '-h' || command === 'doctor') printOpenModelBanner();
   if (command === 'help' || command === '--help' || command === '-h') return process.stdout.write(helpText);
   if (command === 'pull') return pullCommand(positionals, flags);
   if (command === 'run') return runCommand(positionals, flags);

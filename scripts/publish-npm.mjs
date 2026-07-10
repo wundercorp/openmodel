@@ -20,7 +20,7 @@ function fail(message) {
 }
 
 function printUsage() {
-  process.stdout.write(`Usage: node scripts/publish-npm.mjs [options]\n\nOptions:\n  --tag NAME             npm distribution tag. Default: latest.\n  --registry URL         npm registry. Default: https://registry.npmjs.org/.\n  --provenance           Request npm provenance generation.\n  --dry-run              Run npm publish in dry-run mode.\n  --require-tag-match    Require GITHUB_REF_NAME to equal v<CLI version>.\n  --help                 Show this help text.\n`);
+  process.stdout.write(`Usage: node scripts/publish-npm.mjs [options]\n\nOptions:\n  --tag NAME             npm distribution tag. Default: latest.\n  --registry URL         npm registry. Default: https://registry.npmjs.org/.\n  --provenance           Request npm provenance generation in supported CI only.\n  --dry-run              Run npm publish in dry-run mode.\n  --require-tag-match    Require GITHUB_REF_NAME to equal v<CLI version>.\n  --help                 Show this help text.\n`);
 }
 
 function parseArguments(argumentValues) {
@@ -138,9 +138,7 @@ function publishPackage(workspaceName, packageManifest, configuration) {
     configuration.registryUrl,
   ];
 
-  if (configuration.provenance) {
-    publishArguments.push("--provenance");
-  }
+  publishArguments.push(`--provenance=${configuration.provenance ? "true" : "false"}`);
 
   if (configuration.dryRun) {
     publishArguments.push("--dry-run");
@@ -158,6 +156,10 @@ function main() {
 
   if (cliGatewaySdkDependencyVersion !== gatewaySdkPackage.version) {
     fail(`The CLI requires gateway SDK ${cliGatewaySdkDependencyVersion}, but the workspace SDK is ${gatewaySdkPackage.version}.`);
+  }
+
+  if (configuration.provenance && process.env.GITHUB_ACTIONS !== "true" && process.env.GITLAB_CI !== "true") {
+    fail("npm provenance requires a supported cloud CI environment. Publish locally without --provenance.");
   }
 
   if (configuration.requireTagMatch) {
