@@ -1,0 +1,13 @@
+aws_region              = "us-east-1"
+aws_profile             = ""
+expected_aws_account_id = "668076964296"
+route53_zone_id         = "Z00830633ZJTPIDY86OC"
+project_name            = "openmodel"
+web_hostname            = "openmodel.sh"
+api_hostname            = "api.openmodel.sh"
+auth_issuer             = "https://auth.wundercorp.co"
+auth_audience           = "https://api.openmodel.sh"
+allowed_origins         = "https://openmodel.sh"
+cloudfront_price_class  = "PriceClass_100"
+log_retention_days      = 30
+force_destroy_web_bucket = false

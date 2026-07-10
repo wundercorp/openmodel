@@ -1,0 +1,33 @@
+{
+  "name": "openmodel-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gateway-first local model runtime, cloud API, and openmodel.sh website.",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "gateways/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:web": "npm run dev --workspace @wundercorp/openmodel-web",
+    "dev:cloud": "npm run dev --workspace @wundercorp/openmodel-cloud",
+    "dev:cli": "node apps/cli/bin/om.mjs",
+    "pack:cli": "npm pack --workspace @wundercorp/openmodel --pack-destination .artifacts",
+    "release:dry-run": "npm publish --workspace @wundercorp/openmodel-gateway-sdk --dry-run --registry=https://registry.npmjs.org/ && npm publish --workspace @wundercorp/openmodel --dry-run --registry=https://registry.npmjs.org/",
+    "clean": "node scripts/clean.mjs",
+    "deploy": "bash scripts/deploy.sh",
+    "deploy:all": "bash scripts/deploy.sh --publish-npm",
+    "deploy:validate": "bash scripts/deploy.sh --validate-only",
+    "repo:init": "bash scripts/git-init.sh",
+    "repo:push": "bash scripts/git-push.sh",
+    "deploy:aws": "bash scripts/deploy.sh --provider aws",
+    "deploy:cloudflare": "bash scripts/deploy.sh --provider cloudflare"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,40 @@
+{
+  "name": "@wundercorp/openmodel",
+  "version": "0.1.0",
+  "description": "Gateway-first local model runtime and OpenAI-compatible server.",
+  "type": "module",
+  "bin": {
+    "om": "bin/om.mjs"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./gateway-sdk": "./src/gateway-sdk.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "find src bin -name '*.js' -o -name '*.mjs' | xargs -n 1 node --check",
+    "test": "node --test",
+    "build": "node --check bin/om.mjs"
+  },
+  "dependencies": {
+    "@wundercorp/openmodel-gateway-sdk": "0.1.0"
+  },
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wundercorp/openmodel.git",
+    "directory": "apps/cli"
+  },
+  "homepage": "https://openmodel.sh"
+}

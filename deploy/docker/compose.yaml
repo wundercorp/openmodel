@@ -1,0 +1,26 @@
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/web.Dockerfile
+      args:
+        VITE_AUTH_ISSUER: ${OPENMODEL_AUTH_ISSUER:-https://auth.wundercorp.co}
+        VITE_AUTH_CLIENT_ID: ${OPENMODEL_WEB_AUTH_CLIENT_ID:-openmodel-web}
+        VITE_AUTH_AUDIENCE: ${OPENMODEL_AUTH_AUDIENCE:-https://api.openmodel.sh}
+        VITE_AUTH_REDIRECT_URI: ${OPENMODEL_WEB_REDIRECT_URI:-http://localhost:8080/auth/callback}
+        VITE_CLOUD_API_URL: ${OPENMODEL_CLOUD_API_URL:-http://localhost:8787}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - cloud
+
+  cloud:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/cloud.Dockerfile
+    ports:
+      - "8787:8787"
+    environment:
+      AUTH_ISSUER: ${OPENMODEL_AUTH_ISSUER:-https://auth.wundercorp.co}
+      AUTH_AUDIENCE: ${OPENMODEL_AUTH_AUDIENCE:-https://api.openmodel.sh}
+      ALLOWED_ORIGINS: ${OPENMODEL_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173}
