@@ -227,13 +227,55 @@ run_npm_without_deployment_secrets() {
     -u CLOUDFLARE_API_TOKEN \
     -u NPM_TOKEN \
     -u NODE_AUTH_TOKEN \
+    -u NODE_ENV \
+    -u NPM_CONFIG_PRODUCTION \
+    -u npm_config_production \
+    -u NPM_CONFIG_OMIT \
+    -u npm_config_omit \
+    -u NPM_CONFIG_BIN_LINKS \
+    -u npm_config_bin_links \
     NPM_CONFIG_USERCONFIG="$repository_root_directory/.npmrc" \
     "$@"
 }
 
+validate_package_lock_registry() {
+  if grep -q 'packages\.applied-caas-gateway1\.internal\.api\.openai\.org' "$repository_root_directory/package-lock.json"; then
+    fail_deployment "package-lock.json contains an internal package registry URL. Pull the sanitized lockfile before deploying."
+  fi
+}
+
 install_dependencies() {
-  log_message "Installing locked npm dependencies without deployment credentials"
-  run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" ci
+  validate_package_lock_registry
+  log_message "Checking public npm registry connectivity"
+  run_npm_without_deployment_secrets npm ping --registry="$npm_public_registry_url" --fetch-timeout=15000 --fetch-retries=1
+
+  log_message "Installing locked npm dependencies from the public npm registry"
+  run_npm_without_deployment_secrets npm \
+    --prefix "$repository_root_directory" \
+    ci \
+    --include=dev \
+    --production=false \
+    --workspaces \
+    --include-workspace-root \
+    --bin-links=true \
+    --registry="$npm_public_registry_url" \
+    --no-audit \
+    --no-fund \
+    --foreground-scripts \
+    --fetch-timeout=60000 \
+    --fetch-retries=2 \
+    --loglevel=http
+
+  if [[ ! -x "$repository_root_directory/node_modules/.bin/tsc" ]]; then
+    printf '\nEffective npm installation settings:\n' >&2
+    run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" config get omit >&2 || true
+    run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" config get production >&2 || true
+    run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" config get bin-links >&2 || true
+    run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" ls typescript --all >&2 || true
+    fail_deployment "TypeScript was not installed or its tsc binary was not linked. Remove node_modules and rerun deployment with the updated installer."
+  fi
+
+  log_message "Verified TypeScript toolchain: $($repository_root_directory/node_modules/.bin/tsc --version)"
 }
 
 build_website() {
