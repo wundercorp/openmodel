@@ -187,6 +187,9 @@ validate_configuration() {
   if [[ -z "$OPENMODEL_AUTH_AUDIENCE" ]]; then
     fail_deployment "OPENMODEL_AUTH_AUDIENCE must contain the Cognito app client ID accepted by the API."
   fi
+  if [[ "$OPENMODEL_AUTH_AUDIENCE" != "$OPENMODEL_WEB_AUTH_CLIENT_ID" ]]; then
+    fail_deployment "OPENMODEL_AUTH_AUDIENCE must match OPENMODEL_WEB_AUTH_CLIENT_ID for Cognito access-token validation."
+  fi
   if [[ -n "$OPENMODEL_AWS_ACCOUNT_ID" && ! "$OPENMODEL_AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
     fail_deployment "OPENMODEL_AWS_ACCOUNT_ID must be a 12-digit AWS account ID when provided."
   fi
@@ -309,6 +312,11 @@ build_aws_api() {
   run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" run build --workspace @wundercorp/openmodel-aws-api
 }
 
+validate_aws_api_bundle() {
+  log_message "Smoke-testing the bundled AWS Lambda entrypoint"
+  run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" run test:bundle --workspace @wundercorp/openmodel-aws-api
+}
+
 run_source_validation() {
   if [[ "$skip_source_validation" == "true" ]]; then
     log_message "Skipping source validation by request"
@@ -325,10 +333,11 @@ run_source_validation() {
 build_deployment_assets() {
   if [[ "$skip_source_validation" == "true" ]]; then
     ensure_built_assets_exist
-    return
+  else
+    build_website
+    build_aws_api
   fi
-  build_website
-  build_aws_api
+  validate_aws_api_bundle
 }
 
 ensure_built_assets_exist() {

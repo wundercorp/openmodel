@@ -1,10 +1,9 @@
-import path from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { parseArgs, getFlag } from './lib/args.js';
 import { getPaths } from './lib/paths.js';
-import { downloadArtifact } from './lib/download.js';
 import { readConfig, writeConfig } from './lib/config.js';
-import { findManifest, listManifests, removeManifest, safeModelId, saveManifest, setAlias } from './lib/model-store.js';
+import { installModel } from './lib/install-model.js';
+import { findManifest, listManifests, removeManifest } from './lib/model-store.js';
 import { loadGateways, resolveReference } from './gateways/registry.js';
 import { selectRuntime, runtimes } from './runtimes/index.js';
 import { startLocalServer } from './server/http.js';
@@ -57,20 +56,10 @@ export async function main(argv) {
 async function pullCommand(positionals, flags) {
   const reference = positionals[0];
   if (!reference) throw new Error('Usage: om pull <reference> [--alias name]');
-  const { gateway, model } = await resolveReference(reference);
-  const paths = getPaths();
-  const modelDirectory = path.join(paths.models, safeModelId(model.id));
-  await mkdir(modelDirectory, { recursive: true });
-  const artifactPaths = [];
-  for (const artifact of model.artifacts) artifactPaths.push(await downloadArtifact(artifact, modelDirectory));
-  if (model.native?.runtime === 'ollama') {
-    const runtime = runtimes.find((candidate) => candidate.id === 'ollama');
-    if (!(await runtime.available())) throw new Error('Ollama is required for ollama:// references.');
-    await runtime.pull(model.native.model);
-  }
-  const manifest = await saveManifest(model, gateway.id, artifactPaths);
   const alias = getFlag(flags, 'alias');
-  if (alias) await setAlias(String(alias), manifest.storedId);
+  const manifest = await installModel(reference, {
+    alias: alias ? String(alias) : undefined
+  });
   process.stdout.write(`Installed ${manifest.storedId}${alias ? ` as ${alias}` : ''}.\n`);
 }
 

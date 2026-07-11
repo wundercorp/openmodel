@@ -171,6 +171,9 @@ validate_boolean_configuration() {
   if [[ -z "$OPENMODEL_AUTH_AUDIENCE" ]]; then
     fail_deployment "OPENMODEL_AUTH_AUDIENCE must contain the Cognito app client ID accepted by the API."
   fi
+  if [[ "$OPENMODEL_AUTH_AUDIENCE" != "$OPENMODEL_WEB_AUTH_CLIENT_ID" ]]; then
+    fail_deployment "OPENMODEL_AUTH_AUDIENCE must match OPENMODEL_WEB_AUTH_CLIENT_ID for Cognito access-token validation."
+  fi
 
   if [[ "$OPENMODEL_MANAGE_CUSTOM_DOMAINS" != "0" && "$OPENMODEL_MANAGE_CUSTOM_DOMAINS" != "1" ]]; then
     fail_deployment "OPENMODEL_MANAGE_CUSTOM_DOMAINS must be 0 or 1."

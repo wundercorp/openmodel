@@ -92,16 +92,16 @@ async function authenticate(request: Request, env: Env): Promise<JwtPayload> {
   if (header.alg !== 'RS256') throw new HttpError(401, `Unsupported token algorithm ${header.alg}.`);
   const issuer = env.AUTH_ISSUER.replace(/\/$/, '');
   if (payload.iss.replace(/\/$/, '') !== issuer) throw new HttpError(401, 'Token issuer did not match.');
-  const expectedAudiences = env.AUTH_AUDIENCE.split(',').map((value) => value.trim()).filter(Boolean);
-  const presentedAudiences = [
-    ...(Array.isArray(payload.aud) ? payload.aud : [payload.aud]),
-    payload.client_id,
-    payload.azp
-  ].filter((value): value is string => typeof value === 'string');
-  if (!expectedAudiences.some((expectedAudience) => presentedAudiences.includes(expectedAudience))) {
-    throw new HttpError(401, 'Token client or audience did not match.');
-  }
   if (payload.token_use && payload.token_use !== 'access') throw new HttpError(401, 'An access token is required.');
+  const expectedClientIds = env.AUTH_AUDIENCE.split(',').map((value) => value.trim()).filter(Boolean);
+  const presentedClientId = typeof payload.client_id === 'string'
+    ? payload.client_id
+    : typeof payload.azp === 'string'
+      ? payload.azp
+      : undefined;
+  if (!presentedClientId || !expectedClientIds.includes(presentedClientId)) {
+    throw new HttpError(401, 'Token was issued for a different Cognito app client. Sign out and sign in again.');
+  }
   const now = Math.floor(Date.now() / 1000);
   if (payload.exp <= now) throw new HttpError(401, 'Access token has expired.');
   if (payload.nbf && payload.nbf > now + 30) throw new HttpError(401, 'Access token is not active yet.');

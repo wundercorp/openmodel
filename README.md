@@ -52,10 +52,10 @@ om pull ollama://qwen2.5:3b
 om run qwen2.5:3b "Explain gateway interoperability."
 ```
 
-Start a local API:
+Start the local API. A default model is optional, so the dashboard can connect before anything is installed:
 
 ```bash
-om serve tinyllama --port 11435
+om serve --port 11435
 curl http://127.0.0.1:11435/v1/models
 ```
 
@@ -63,9 +63,14 @@ The local server supports:
 
 - `GET /health`
 - `GET /v1/models`
+- `GET /v1/model-catalog`
+- `POST /v1/models/install`
+- `GET /v1/model-installs/:jobId`
 - `POST /v1/chat/completions`
 - `GET /api/tags`
 - `POST /api/generate`
+
+The authenticated web dashboard uses the catalog and install-job endpoints for a one-click starter-model download with local progress reporting. Installation requests are restricted to configured browser origins.
 
 ## Gateway interoperability
 

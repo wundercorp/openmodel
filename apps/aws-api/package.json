@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/index.mjs --bundle --platform=node --target=node22 --format=esm --outfile=dist/index.mjs",
+    "build": "esbuild src/index.mjs --bundle --platform=node --target=node22 --format=esm --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" --outfile=dist/index.mjs",
     "check": "node --check src/index.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "test:bundle": "node scripts/bundle-smoke.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "3.1084.0",

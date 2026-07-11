@@ -84,20 +84,21 @@ async function authenticate(authorizationHeader) {
     throw new HttpError(401, 'Token issuer did not match.');
   }
 
-  const expectedAudiences = requireEnvironmentVariable('AUTH_AUDIENCE')
+  if (payload.token_use && payload.token_use !== 'access') {
+    throw new HttpError(401, 'An access token is required.');
+  }
+
+  const expectedClientIds = requireEnvironmentVariable('AUTH_AUDIENCE')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
-  const presentedAudiences = [
-    ...(Array.isArray(payload.aud) ? payload.aud : [payload.aud]),
-    payload.client_id,
-    payload.azp
-  ].filter((value) => typeof value === 'string');
-  if (!expectedAudiences.some((expectedAudience) => presentedAudiences.includes(expectedAudience))) {
-    throw new HttpError(401, 'Token client or audience did not match.');
-  }
-  if (payload.token_use && payload.token_use !== 'access') {
-    throw new HttpError(401, 'An access token is required.');
+  const presentedClientId = typeof payload.client_id === 'string'
+    ? payload.client_id
+    : typeof payload.azp === 'string'
+      ? payload.azp
+      : undefined;
+  if (!presentedClientId || !expectedClientIds.includes(presentedClientId)) {
+    throw new HttpError(401, 'Token was issued for a different Cognito app client. Sign out and sign in again.');
   }
 
   const currentUnixTime = Math.floor(Date.now() / 1000);

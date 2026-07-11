@@ -71,6 +71,7 @@ const configuredScopes = String(
   .filter(Boolean);
 const storageKey = "openmodel:auth";
 const loginRequestKey = "openmodel:auth-request";
+const sessionValidationNoticeKey = "openmodel:auth-notice";
 const loginRequestMaximumAgeMilliseconds = 15 * 60 * 1000;
 let metadataPromise: Promise<OidcMetadata> | undefined;
 let loginCompletionPromise: Promise<LoginCompletion> | undefined;
@@ -119,6 +120,67 @@ function decodeJwtPayload(token: string | undefined) {
   } catch {
     return undefined;
   }
+}
+
+
+function readStringClaim(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readAudienceClaims(value: unknown) {
+  if (typeof value === "string") {
+    return [value];
+  }
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === "string");
+  }
+  return [];
+}
+
+function validateSessionTokens(session: AuthSession) {
+  const accessTokenClaims = decodeJwtPayload(session.access_token);
+  if (!accessTokenClaims) {
+    return "The stored access token is malformed. Sign in again.";
+  }
+
+  const tokenUse = readStringClaim(accessTokenClaims.token_use);
+  if (tokenUse && tokenUse !== "access") {
+    return "The stored browser session does not contain a Cognito access token. Sign in again.";
+  }
+
+  const tokenIssuer = readStringClaim(accessTokenClaims.iss);
+  if (issuer && tokenIssuer && normalizeUrl(tokenIssuer) !== issuer) {
+    return "The stored browser session belongs to a different Cognito user pool. Sign in again.";
+  }
+
+  const accessTokenClientId =
+    readStringClaim(accessTokenClaims.client_id) ??
+    readStringClaim(accessTokenClaims.azp);
+  if (clientId && accessTokenClientId && accessTokenClientId !== clientId) {
+    return "This browser session was issued for a different Cognito app client. Sign in again.";
+  }
+
+  const idTokenClaims = decodeJwtPayload(session.id_token);
+  const idTokenAudiences = readAudienceClaims(idTokenClaims?.aud);
+  if (
+    clientId &&
+    idTokenAudiences.length > 0 &&
+    !idTokenAudiences.includes(clientId)
+  ) {
+    return "This browser session was issued for a different Cognito app client. Sign in again.";
+  }
+
+  return undefined;
+}
+
+function storeSessionValidationNotice(message: string) {
+  sessionStorage.setItem(sessionValidationNoticeKey, message);
+}
+
+export function consumeSessionValidationNotice() {
+  const message = sessionStorage.getItem(sessionValidationNoticeKey) ?? undefined;
+  sessionStorage.removeItem(sessionValidationNoticeKey);
+  return message;
 }
 
 function createRandomValue(length: number) {
@@ -264,7 +326,7 @@ function createSession(
     ? tokenExpirationSeconds * 1000
     : obtainedAt + fallbackLifetimeSeconds * 1000;
 
-  return {
+  const session = {
     access_token: accessToken,
     id_token: tokenResponse.id_token ?? previousSession?.id_token,
     refresh_token:
@@ -275,6 +337,13 @@ function createSession(
     obtainedAt,
     expiresAt,
   } satisfies AuthSession;
+
+  const validationError = validateSessionTokens(session);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  return session;
 }
 
 function storeSession(session: AuthSession) {
@@ -445,15 +514,24 @@ export function getSession() {
     const session = JSON.parse(value) as AuthSession;
     if (!session.access_token || !Number.isFinite(session.expiresAt)) {
       clearSession();
+      storeSessionValidationNotice("The stored browser session is invalid. Sign in again.");
+      return undefined;
+    }
+    const validationError = validateSessionTokens(session);
+    if (validationError) {
+      clearSession();
+      storeSessionValidationNotice(validationError);
       return undefined;
     }
     if (session.expiresAt <= Date.now() && !session.refresh_token) {
       clearSession();
+      storeSessionValidationNotice("The browser session expired. Sign in again.");
       return undefined;
     }
     return session;
   } catch {
     clearSession();
+    storeSessionValidationNotice("The stored browser session could not be read. Sign in again.");
     return undefined;
   }
 }
@@ -553,6 +631,7 @@ export async function logout() {
   const currentSession = getSession();
   clearSession();
   clearLoginRequest();
+  sessionStorage.removeItem(sessionValidationNoticeKey);
 
   try {
     const metadata = await discover();

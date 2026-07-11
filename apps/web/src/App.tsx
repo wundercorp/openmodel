@@ -3,6 +3,7 @@ import { Badge, Button, Card, CodeBlock } from "./components/ui";
 import {
   beginLogin,
   completeLogin,
+  consumeSessionValidationNotice,
   getAuthConfigurationError,
   getSession,
   getSessionUser,
@@ -13,13 +14,89 @@ import {
   getApiBaseUrl,
   getDashboardUser,
   getGatewayRegistry,
+  getLocalModelCatalog,
+  getLocalModelInstall,
+  getLocalModels,
+  startLocalModelInstall,
   type DashboardUser,
   type GatewayRecord,
+  type InstallableLocalModel,
+  type LocalModelRecord,
+  type ModelInstallJob,
 } from "./lib/api";
 
 type Theme = "dark" | "light";
 type Accent = "orange" | "green" | "blue" | "fuchsia";
 type DashboardLoadState = "idle" | "loading" | "ready" | "error";
+type LocalApiState = "idle" | "loading" | "connected" | "offline";
+type DashboardRoute =
+  | "overview"
+  | "models"
+  | "builderstudio"
+  | "doku"
+  | "gateways"
+  | "account";
+
+interface DashboardCache {
+  user?: DashboardUser;
+  gateways: GatewayRecord[];
+  updatedAt: number;
+}
+
+const dashboardCacheKey = "openmodel:dashboard-cache";
+const modelInstallJobStorageKey = "openmodel:model-install-job";
+
+const dashboardRouteItems: Array<{
+  route: DashboardRoute;
+  index: string;
+  label: string;
+}> = [
+  { route: "overview", index: "01", label: "OVERVIEW" },
+  { route: "models", index: "02", label: "MODELS" },
+  { route: "builderstudio", index: "03", label: "USE MODELS" },
+  { route: "doku", index: "04", label: "DOKU.SH" },
+  { route: "gateways", index: "05", label: "GATEWAYS" },
+  { route: "account", index: "06", label: "ACCOUNT" },
+];
+
+function readDashboardRoute(): DashboardRoute {
+  const route = new URLSearchParams(window.location.search).get("view");
+  return dashboardRouteItems.some((item) => item.route === route)
+    ? (route as DashboardRoute)
+    : "overview";
+}
+
+function readDashboardCache() {
+  const storedValue = sessionStorage.getItem(dashboardCacheKey);
+  if (!storedValue) {
+    return undefined;
+  }
+
+  try {
+    const parsedValue = JSON.parse(storedValue) as DashboardCache;
+    if (!Array.isArray(parsedValue.gateways)) {
+      return undefined;
+    }
+    return parsedValue;
+  } catch {
+    sessionStorage.removeItem(dashboardCacheKey);
+    return undefined;
+  }
+}
+
+function writeDashboardCache(cache: DashboardCache) {
+  sessionStorage.setItem(dashboardCacheKey, JSON.stringify(cache));
+}
+
+function formatBytes(value: number | undefined) {
+  if (!Number.isFinite(value) || !value) {
+    return "0 MB";
+  }
+  if (value >= 1024 * 1024 * 1024) {
+    return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
+  }
+  return `${(value / 1024 / 1024).toFixed(value >= 100 * 1024 * 1024 ? 0 : 1)} MB`;
+}
 
 const gateways = [
   ["Hugging Face", "hf://", "GGUF and registry artifacts"],
@@ -27,6 +104,21 @@ const gateways = [
   ["Ollama", "ollama://", "Native Ollama registry models"],
   ["Your gateway", "npm package", "Versioned SDK and explicit registration"],
 ];
+
+const starterModelFallback: InstallableLocalModel = {
+  id: "qwen2.5-0.5b-instruct-q4",
+  name: "Qwen2.5 0.5B Instruct",
+  description: "A compact instruction model intended as a quick first local download.",
+  reference:
+    "hf://Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+  alias: "qwen-small",
+  format: "GGUF · Q4_K_M",
+  parameterCount: "0.5B",
+  sizeBytes: 491000000,
+  license: "Apache-2.0",
+  sourceUrl: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+  installed: false,
+};
 
 const openModelBanner = String.raw` ██████╗ ██████╗ ███████╗███╗   ██╗███╗   ███╗ ██████╗ ██████╗ ███████╗██╗     
 ██╔═══██╗██╔══██╗██╔════╝████╗  ██║████╗ ████║██╔═══██╗██╔══██╗██╔════╝██║     
@@ -48,7 +140,9 @@ export function App() {
   const [authenticationBusy, setAuthenticationBusy] = useState(
     () => window.location.pathname === "/auth/callback",
   );
-  const [authenticationError, setAuthenticationError] = useState<string>();
+  const [authenticationError, setAuthenticationError] = useState<string | undefined>(() =>
+    consumeSessionValidationNotice(),
+  );
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -117,6 +211,10 @@ export function App() {
 
   const synchronizeSession = useCallback(() => {
     const storedSession = getSession();
+    const validationNotice = consumeSessionValidationNotice();
+    if (validationNotice) {
+      setAuthenticationError(validationNotice);
+    }
 
     setSession((currentSession) => {
       if (!storedSession) {
@@ -150,27 +248,32 @@ export function App() {
 
   return (
     <div className="page-shell">
-      <SiteHeader
-        theme={theme}
-        accent={accent}
-        session={session}
-        sessionLabel={sessionUser?.email ?? sessionUser?.username}
-        authenticationBusy={authenticationBusy}
-        onThemeChange={() =>
-          setTheme((currentTheme) =>
-            currentTheme === "dark" ? "light" : "dark",
-          )
-        }
-        onAccentChange={setAccent}
-        onSignIn={() => void startSignIn("/dashboard")}
-        onSignOut={() => void signOut()}
-      />
+      {!isDashboard ? (
+        <SiteHeader
+          theme={theme}
+          accent={accent}
+          session={session}
+          sessionLabel={sessionUser?.email ?? sessionUser?.username}
+          authenticationBusy={authenticationBusy}
+          onThemeChange={() =>
+            setTheme((currentTheme) =>
+              currentTheme === "dark" ? "light" : "dark",
+            )
+          }
+          onAccentChange={setAccent}
+          onSignIn={() => void startSignIn("/dashboard")}
+          onSignOut={() => void signOut()}
+        />
+      ) : null}
 
       {authenticationError && !isDashboard && !isAuthCallback ? (
         <div className="authentication-notice authentication-notice-error">
           <span>AUTH_ERROR</span>
           <strong>{authenticationError}</strong>
-          <button type="button" onClick={() => setAuthenticationError(undefined)}>
+          <button
+            type="button"
+            onClick={() => setAuthenticationError(undefined)}
+          >
             DISMISS
           </button>
         </div>
@@ -184,8 +287,16 @@ export function App() {
         />
       ) : isDashboard ? (
         <DashboardPage
+          theme={theme}
+          accent={accent}
           session={session}
           authenticationError={authenticationError}
+          onThemeChange={() =>
+            setTheme((currentTheme) =>
+              currentTheme === "dark" ? "light" : "dark",
+            )
+          }
+          onAccentChange={setAccent}
           onSignIn={() => void startSignIn("/dashboard")}
           onSignOut={() => void signOut()}
           onSessionChange={synchronizeSession}
@@ -268,7 +379,10 @@ function SiteHeader({
 
         {session ? (
           <>
-            <a className="button button-outline header-dashboard-button" href="/dashboard">
+            <a
+              className="button button-outline header-dashboard-button"
+              href="/dashboard"
+            >
               DASHBOARD
             </a>
             <Button
@@ -354,8 +468,8 @@ OpenModel local API listening on http://127.0.0.1:11435`}</CodeBlock>
           <Badge>INTEROPERABILITY</Badge>
           <h2>GATEWAYS TO ANY LLM.</h2>
           <p>
-            Contributors add providers through a small public SDK. Core
-            commands remain provider-neutral and runtime-neutral.
+            Contributors add providers through a small public SDK. Core commands
+            remain provider-neutral and runtime-neutral.
           </p>
         </div>
 
@@ -378,8 +492,8 @@ OpenModel local API listening on http://127.0.0.1:11435`}</CodeBlock>
           <Badge>LOCAL API</Badge>
           <h2>DROP INTO EXISTING TOOLING</h2>
           <p>
-            Serve installed models through OpenAI-compatible chat completions
-            or Ollama-compatible generation endpoints.
+            Serve installed models through OpenAI-compatible chat completions or
+            Ollama-compatible generation endpoints.
           </p>
           <ul>
             <li>GET /v1/models</li>
@@ -448,52 +562,157 @@ function AuthCallbackPage({ busy, error, onRetry }: AuthCallbackPageProps) {
 }
 
 interface DashboardPageProps {
+  theme: Theme;
+  accent: Accent;
   session?: AuthSession;
   authenticationError?: string;
+  onThemeChange: () => void;
+  onAccentChange: (accent: Accent) => void;
   onSignIn: () => void;
   onSignOut: () => void;
   onSessionChange: () => void;
 }
 
 function DashboardPage({
+  theme,
+  accent,
   session,
   authenticationError,
+  onThemeChange,
+  onAccentChange,
   onSignIn,
   onSignOut,
   onSessionChange,
 }: DashboardPageProps) {
-  const [loadState, setLoadState] = useState<DashboardLoadState>("idle");
-  const [dashboardUser, setDashboardUser] = useState<DashboardUser>();
-  const [gatewayRecords, setGatewayRecords] = useState<GatewayRecord[]>([]);
+  const [initialDashboardCache] = useState(() => readDashboardCache());
+  const [activeRoute, setActiveRoute] = useState<DashboardRoute>(() =>
+    readDashboardRoute(),
+  );
+  const [loadState, setLoadState] = useState<DashboardLoadState>(() =>
+    initialDashboardCache ? "ready" : "idle",
+  );
+  const [cloudRefreshing, setCloudRefreshing] = useState(false);
+  const [lastCloudSyncAt, setLastCloudSyncAt] = useState<number | undefined>(
+    initialDashboardCache?.updatedAt,
+  );
+  const [dashboardUser, setDashboardUser] = useState<DashboardUser | undefined>(
+    initialDashboardCache?.user,
+  );
+  const [gatewayRecords, setGatewayRecords] = useState<GatewayRecord[]>(
+    initialDashboardCache?.gateways ?? [],
+  );
   const [dashboardError, setDashboardError] = useState<string>();
+  const [localApiUrl, setLocalApiUrl] = useState(
+    () =>
+      localStorage.getItem("openmodel:local-api-url") ??
+      "http://127.0.0.1:11435",
+  );
+  const [localApiInput, setLocalApiInput] = useState(localApiUrl);
+  const [localApiState, setLocalApiState] = useState<LocalApiState>("idle");
+  const [localApiError, setLocalApiError] = useState<string>();
+  const [localModels, setLocalModels] = useState<LocalModelRecord[]>([]);
+  const [localModelCatalog, setLocalModelCatalog] = useState<InstallableLocalModel[]>([]);
+  const [modelInstallJob, setModelInstallJob] = useState<ModelInstallJob>();
+  const [modelInstallError, setModelInstallError] = useState<string>();
+  const [selectedModelId, setSelectedModelId] = useState<string>();
+  const [copiedCommand, setCopiedCommand] = useState<string>();
   const dashboardRequestId = useRef(0);
+  const localApiRequestId = useRef(0);
+  const dashboardAbortController = useRef<AbortController | undefined>(undefined);
+  const localApiAbortController = useRef<AbortController | undefined>(undefined);
+  const modelInstallAbortController = useRef<AbortController | undefined>(undefined);
+  const initialCloudLoadStarted = useRef(false);
+  const dashboardData = useRef({
+    user: initialDashboardCache?.user,
+    gateways: initialDashboardCache?.gateways ?? [],
+  });
   const localUser = useMemo(() => getSessionUser(session), [session]);
   const sessionAccessToken = session?.access_token;
+
+  const navigateDashboard = useCallback((route: DashboardRoute) => {
+    const nextUrl =
+      route === "overview" ? "/dashboard" : `/dashboard?view=${route}`;
+    window.history.pushState({ dashboardRoute: route }, "", nextUrl);
+    setActiveRoute(route);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
+  const navigateHome = useCallback(() => {
+    window.location.assign("/");
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveRoute(readDashboardRoute());
+      window.scrollTo({ top: 0, behavior: "auto" });
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   const loadDashboard = useCallback(async () => {
     if (!sessionAccessToken) {
       return;
     }
 
+    dashboardAbortController.current?.abort();
+    const abortController = new AbortController();
+    dashboardAbortController.current = abortController;
+
     const requestId = dashboardRequestId.current + 1;
     dashboardRequestId.current = requestId;
-    setLoadState("loading");
+    const hasExistingData = Boolean(
+      dashboardData.current.user || dashboardData.current.gateways.length > 0,
+    );
+
+    setCloudRefreshing(true);
     setDashboardError(undefined);
+    if (!hasExistingData) {
+      setLoadState("loading");
+    }
 
     const [userResult, gatewayResult] = await Promise.allSettled([
-      getDashboardUser(),
-      getGatewayRegistry(),
+      getDashboardUser(abortController.signal),
+      getGatewayRegistry(abortController.signal),
     ]);
 
-    if (requestId !== dashboardRequestId.current) {
+    if (
+      abortController.signal.aborted ||
+      requestId !== dashboardRequestId.current
+    ) {
       return;
     }
 
+    const nextUser =
+      userResult.status === "fulfilled"
+        ? userResult.value
+        : dashboardData.current.user;
+    const nextGateways =
+      gatewayResult.status === "fulfilled"
+        ? gatewayResult.value
+        : dashboardData.current.gateways;
+
     if (userResult.status === "fulfilled") {
+      dashboardData.current.user = userResult.value;
       setDashboardUser(userResult.value);
     }
     if (gatewayResult.status === "fulfilled") {
+      dashboardData.current.gateways = gatewayResult.value;
       setGatewayRecords(gatewayResult.value);
+    }
+
+    if (
+      userResult.status === "fulfilled" ||
+      gatewayResult.status === "fulfilled"
+    ) {
+      const updatedAt = Date.now();
+      setLastCloudSyncAt(updatedAt);
+      writeDashboardCache({
+        user: nextUser,
+        gateways: nextGateways,
+        updatedAt,
+      });
     }
 
     const errors: string[] = [];
@@ -513,28 +732,304 @@ function DashboardPage({
     }
 
     onSessionChange();
+    setCloudRefreshing(false);
 
     if (errors.length > 0) {
       setDashboardError(errors.join(" "));
-      setLoadState("error");
+      setLoadState(hasExistingData ? "ready" : "error");
       return;
     }
 
     setLoadState("ready");
   }, [onSessionChange, sessionAccessToken]);
 
+  const loadLocalModelRegistry = useCallback(async (requestedUrl: string) => {
+    const normalizedUrl = requestedUrl.trim().replace(/\/$/, "");
+    if (!normalizedUrl) {
+      setLocalApiState("offline");
+      setLocalApiError("Enter the URL of the local OpenModel API.");
+      return false;
+    }
+
+    localApiAbortController.current?.abort();
+    const abortController = new AbortController();
+    localApiAbortController.current = abortController;
+    const requestId = localApiRequestId.current + 1;
+    localApiRequestId.current = requestId;
+    let requestTimedOut = false;
+    const timeoutId = window.setTimeout(() => {
+      requestTimedOut = true;
+      abortController.abort();
+    }, 5000);
+
+    setLocalApiUrl(normalizedUrl);
+    setLocalApiInput(normalizedUrl);
+    localStorage.setItem("openmodel:local-api-url", normalizedUrl);
+    setLocalApiState("loading");
+    setLocalApiError(undefined);
+
+    try {
+      const [modelsResult, catalogResult] = await Promise.allSettled([
+        getLocalModels(normalizedUrl, abortController.signal),
+        getLocalModelCatalog(normalizedUrl, abortController.signal),
+      ]);
+
+      if (requestId !== localApiRequestId.current) {
+        return false;
+      }
+      if (modelsResult.status === "rejected") {
+        throw modelsResult.reason;
+      }
+
+      setLocalModels(modelsResult.value);
+      setLocalApiState("connected");
+
+      if (catalogResult.status === "fulfilled") {
+        setLocalModelCatalog(catalogResult.value);
+        setModelInstallError(undefined);
+      } else {
+        setLocalModelCatalog([]);
+        setModelInstallError(
+          "One-click model installs require the latest OpenModel CLI. Run npm install -g @wundercorp/openmodel@latest, restart om serve, and reconnect.",
+        );
+      }
+
+      const storedInstallJobId = localStorage.getItem(modelInstallJobStorageKey);
+      if (storedInstallJobId && catalogResult.status === "fulfilled") {
+        try {
+          const storedJob = await getLocalModelInstall(
+            normalizedUrl,
+            storedInstallJobId,
+            abortController.signal,
+          );
+          if (requestId === localApiRequestId.current) {
+            setModelInstallJob(storedJob);
+          }
+        } catch {
+          localStorage.removeItem(modelInstallJobStorageKey);
+        }
+      }
+
+      return true;
+    } catch (error) {
+      if (requestId !== localApiRequestId.current) {
+        return false;
+      }
+      setLocalModels([]);
+      setLocalModelCatalog([]);
+      setLocalApiState("offline");
+      setLocalApiError(
+        requestTimedOut
+          ? "No local OpenModel server responded within 5 seconds."
+          : error instanceof Error
+            ? error.message
+            : "The browser could not reach the local OpenModel API.",
+      );
+      return false;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }, []);
+
+  const refreshLocalModelsSilently = useCallback(async (requestedUrl: string) => {
+    try {
+      const [models, catalog] = await Promise.all([
+        getLocalModels(requestedUrl),
+        getLocalModelCatalog(requestedUrl),
+      ]);
+      setLocalModels(models);
+      setLocalModelCatalog(catalog);
+      setLocalApiState("connected");
+      setLocalApiError(undefined);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const disconnectLocalApi = useCallback(() => {
+    localApiAbortController.current?.abort();
+    modelInstallAbortController.current?.abort();
+    localApiRequestId.current += 1;
+    setLocalApiState("idle");
+    setLocalApiError(undefined);
+    setLocalModels([]);
+    setLocalModelCatalog([]);
+    setModelInstallJob(undefined);
+    setModelInstallError(undefined);
+    setSelectedModelId(undefined);
+  }, []);
+
+  const installCatalogModel = useCallback(
+    async (catalogId: string) => {
+      setModelInstallError(undefined);
+      const normalizedUrl = localApiInput.trim().replace(/\/$/, "");
+      const connected =
+        localApiState === "connected" ||
+        (await loadLocalModelRegistry(normalizedUrl));
+      if (!connected) {
+        setModelInstallError(
+          "Start the local OpenModel service with om serve --port 11435, then press Install again.",
+        );
+        return;
+      }
+
+      modelInstallAbortController.current?.abort();
+      const abortController = new AbortController();
+      modelInstallAbortController.current = abortController;
+
+      try {
+        const job = await startLocalModelInstall(
+          normalizedUrl,
+          catalogId,
+          abortController.signal,
+        );
+        setModelInstallJob(job);
+        localStorage.setItem(modelInstallJobStorageKey, job.id);
+
+        if (job.status === "completed") {
+          localStorage.removeItem(modelInstallJobStorageKey);
+          await refreshLocalModelsSilently(normalizedUrl);
+          if (job.modelId) {
+            setSelectedModelId(job.modelId);
+          }
+        }
+      } catch (error) {
+        setModelInstallError(
+          error instanceof Error
+            ? error.message
+            : "The local model installation could not be started.",
+        );
+      }
+    },
+    [
+      loadLocalModelRegistry,
+      localApiInput,
+      localApiState,
+      refreshLocalModelsSilently,
+    ],
+  );
+
+  const activeModelInstallJobId =
+    modelInstallJob &&
+    !["completed", "error"].includes(modelInstallJob.status)
+      ? modelInstallJob.id
+      : undefined;
+
   useEffect(() => {
-    void loadDashboard();
+    if (!activeModelInstallJobId) {
+      return;
+    }
+
+    let active = true;
+    let timeoutId: number | undefined;
+    const abortController = new AbortController();
+    modelInstallAbortController.current = abortController;
+
+    const pollInstall = async () => {
+      try {
+        const job = await getLocalModelInstall(
+          localApiUrl,
+          activeModelInstallJobId,
+          abortController.signal,
+        );
+        if (!active) {
+          return;
+        }
+
+        setModelInstallJob(job);
+        if (job.status === "completed") {
+          localStorage.removeItem(modelInstallJobStorageKey);
+          await refreshLocalModelsSilently(localApiUrl);
+          if (job.modelId) {
+            setSelectedModelId(job.modelId);
+          }
+          return;
+        }
+        if (job.status === "error") {
+          localStorage.removeItem(modelInstallJobStorageKey);
+          setModelInstallError(job.error ?? "The model installation failed.");
+          return;
+        }
+
+        timeoutId = window.setTimeout(() => {
+          void pollInstall();
+        }, 650);
+      } catch (error) {
+        if (!active || abortController.signal.aborted) {
+          return;
+        }
+        setModelInstallError(
+          error instanceof Error
+            ? error.message
+            : "The dashboard lost the model installation status.",
+        );
+      }
+    };
+
+    void pollInstall();
 
     return () => {
-      dashboardRequestId.current += 1;
+      active = false;
+      abortController.abort();
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
     };
-  }, [loadDashboard]);
+  }, [activeModelInstallJobId, localApiUrl, refreshLocalModelsSilently]);
+
+  useEffect(() => {
+    if (!sessionAccessToken || initialCloudLoadStarted.current) {
+      return;
+    }
+
+    initialCloudLoadStarted.current = true;
+    void loadDashboard();
+  }, [loadDashboard, sessionAccessToken]);
+
+  useEffect(() => {
+    return () => {
+      dashboardRequestId.current += 1;
+      localApiRequestId.current += 1;
+      dashboardAbortController.current?.abort();
+      localApiAbortController.current?.abort();
+      modelInstallAbortController.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (localModels.length === 0) {
+      setSelectedModelId(undefined);
+      return;
+    }
+
+    if (!localModels.some((model) => model.id === selectedModelId)) {
+      setSelectedModelId(localModels[0].id);
+    }
+  }, [localModels, selectedModelId]);
+
+  const copyCommand = useCallback(async (commandId: string, value: string) => {
+    await navigator.clipboard.writeText(value);
+    setCopiedCommand(commandId);
+    window.setTimeout(() => {
+      setCopiedCommand((currentCommandId) =>
+        currentCommandId === commandId ? undefined : currentCommandId,
+      );
+    }, 1600);
+  }, []);
 
   if (!session) {
     const configurationError = getAuthConfigurationError();
     return (
       <main className="dashboard-page dashboard-auth-gate">
+        <button
+          className="dashboard-auth-brand"
+          type="button"
+          onClick={navigateHome}
+        >
+          <span aria-hidden="true">&gt;_</span>
+          <span>OPENMODEL.SH</span>
+        </button>
         <Card className="dashboard-auth-panel">
           <div className="terminal-title">
             <span></span>
@@ -544,10 +1039,10 @@ function DashboardPage({
           </div>
           <div className="dashboard-auth-content">
             <Badge>AUTHENTICATION REQUIRED</Badge>
-            <h1>CONNECT YOUR OPENMODEL ACCOUNT</h1>
+            <h1>LOGIN</h1>
             <p>
               Sign in through Amazon Cognito to load your account, token status,
-              API identity, and gateway registry.
+              cloud gateway registry, and local model workspace.
             </p>
             {authenticationError || configurationError ? (
               <div className="dashboard-inline-error">
@@ -556,9 +1051,9 @@ function DashboardPage({
             ) : null}
             <div className="hero-actions">
               <Button onClick={onSignIn}>SIGN IN WITH COGNITO</Button>
-              <a className="button button-outline" href="/">
+              <Button variant="outline" onClick={navigateHome}>
                 RETURN HOME
-              </a>
+              </Button>
             </div>
           </div>
         </Card>
@@ -579,175 +1074,1220 @@ function DashboardPage({
   const displayedPermissions = dashboardUser?.permissions ?? [];
   const tokenExpiresAt = new Date(session.expiresAt);
   const apiConnected = Boolean(dashboardUser);
+  const localApiConnected = localApiState === "connected";
+  const selectedModel = localModels.find(
+    (model) => model.id === selectedModelId,
+  );
+  const starterModel = localModelCatalog[0];
+  const displayedStarterModel = starterModel ?? starterModelFallback;
+  const starterInstalledModelId =
+    starterModel?.installedModelId ??
+    (modelInstallJob?.status === "completed" ? modelInstallJob.modelId : undefined);
+  const starterModelInstalled = Boolean(
+    starterModel?.installed ||
+      (starterInstalledModelId &&
+        localModels.some((model) => model.id === starterInstalledModelId)),
+  );
+  const modelInstallInProgress = Boolean(
+    modelInstallJob &&
+      !["completed", "error"].includes(modelInstallJob.status),
+  );
+  const modelInstallProgress = Math.max(
+    0,
+    Math.min(100, Math.round(modelInstallJob?.progress ?? 0)),
+  );
+  const userInitials =
+    displayedName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.slice(0, 1).toUpperCase())
+      .join("") || "OM";
+  const installCommand = "npm install -g @wundercorp/openmodel";
+  const pullCommand = "om pull hf://owner/repo/model.gguf --alias local";
+  const serveCommand = `om serve ${selectedModel?.id ?? "local"} --port 11435`;
+  const requestCommand = `curl ${localApiUrl}/v1/chat/completions \\
+  -H 'content-type: application/json' \\
+  -d '{"model":"${selectedModel?.id ?? "local"}","messages":[{"role":"user","content":"Hello"}]}'`;
+  const activeLocalModelId =
+    selectedModel?.id ?? localModels[0]?.id ?? modelInstallJob?.modelId;
+  const builderStudioProfileId = "openmodel-local";
+  const builderStudioModelId = activeLocalModelId ?? "YOUR_MODEL_ID";
+  const builderStudioBaseUrl = `${localApiUrl}/v1`;
+  const builderStudioInstallCommand =
+    "npm install -g @wundercorp/bs@latest";
+  const builderStudioInitializeCommand = "bs init --skip-model-setup";
+  const builderStudioImportCommand = `bs api POST /ai/providers/import --body-json '${JSON.stringify(
+    {
+      profileId: builderStudioProfileId,
+      displayName: "OpenModel Local",
+      providerKind: "custom-local",
+      baseUrl: builderStudioBaseUrl,
+      model: builderStudioModelId,
+      local: true,
+      enabled: true,
+      defaultTemperature: 0.2,
+      defaultMaxTokens: 2048,
+    },
+  )}'`;
+  const builderStudioSelectCommand = `bs model use "${builderStudioModelId}" --profile ${builderStudioProfileId} --strict`;
+  const builderStudioTestCommand = `bs model test ${builderStudioProfileId}`;
+  const builderStudioAskCommand = `bs ask "Explain this repository and suggest the next useful change." --profile ${builderStudioProfileId} --model "${builderStudioModelId}" --strict`;
+  const builderStudioCompleteSetupCommand = [
+    builderStudioInstallCommand,
+    "cd /path/to/your/project",
+    builderStudioInitializeCommand,
+    builderStudioImportCommand,
+    builderStudioSelectCommand,
+    builderStudioTestCommand,
+  ].join("\n");
+  const dokuInstallCommand = "npm install -g @wundercorp/doku@latest";
+  const dokuGenerateCommand = "doku gen";
+  const dokuPackCommand = "doku pack . --output doku.docs.json";
+  const dokuOpenCommand =
+    "doku open ./doku.docs.json --site https://doku.sh";
+  const dokuRefreshCommand =
+    "doku gen && doku pack . --output doku.docs.json";
+  const dokuCompleteSetupCommand = [
+    dokuInstallCommand,
+    "cd /path/to/your/project",
+    dokuGenerateCommand,
+    dokuPackCommand,
+    dokuOpenCommand,
+  ].join("\n");
+  const dokuPackageScripts = `{
+  "scripts": {
+    "docs:update": "doku gen && doku pack . --output doku.docs.json",
+    "docs:open": "doku open ./doku.docs.json --site https://doku.sh"
+  }
+}`;
+  const cloudStatus = apiConnected
+    ? "ONLINE"
+    : loadState === "loading"
+      ? "CONNECTING"
+      : "OFFLINE";
+  const localStatusLabel =
+    localApiState === "loading"
+      ? "CONNECTING"
+      : localApiConnected
+        ? "CONNECTED"
+        : localApiState === "offline"
+          ? "OFFLINE"
+          : "NOT CONNECTED";
+  const activeRouteLabel = activeRoute.toUpperCase();
 
   return (
-    <main className="dashboard-page">
-      <section className="dashboard-hero">
-        <div>
-          <Badge>AUTHENTICATED CONTROL PLANE</Badge>
-          <h1>DASHBOARD</h1>
-          <p>
-            Signed in as <strong>{displayedName}</strong>. This page reads your
-            verified identity from the OpenModel API and loads the live gateway
-            registry.
-          </p>
+    <main className="dashboard-app-shell">
+      <aside className="dashboard-sidebar">
+        <button
+          className="dashboard-sidebar-brand"
+          type="button"
+          onClick={navigateHome}
+        >
+          <span className="dashboard-sidebar-brand-mark" aria-hidden="true">
+            &gt;_
+          </span>
+          <span>
+            <strong>OPENMODEL</strong>
+            <small>CONTROL PLANE</small>
+          </span>
+        </button>
+
+        <div className="dashboard-sidebar-user">
+          <span className="dashboard-user-avatar">{userInitials}</span>
+          <span className="dashboard-sidebar-user-copy">
+            <strong>{displayedName}</strong>
+            <small>{displayedEmail ?? "COGNITO USER"}</small>
+          </span>
+          <span className="dashboard-user-presence" title="Authenticated"></span>
         </div>
-        <div className="dashboard-hero-actions">
-          <Button
-            variant="outline"
-            disabled={loadState === "loading"}
-            onClick={() => void loadDashboard()}
+
+        <nav className="dashboard-sidebar-nav" aria-label="Dashboard pages">
+          {dashboardRouteItems.map((item) => (
+            <button
+              key={item.route}
+              className={activeRoute === item.route ? "is-active" : undefined}
+              type="button"
+              aria-current={activeRoute === item.route ? "page" : undefined}
+              onClick={() => navigateDashboard(item.route)}
+            >
+              <span>{item.index}</span>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="dashboard-sidebar-spacer"></div>
+
+        <div className="dashboard-sidebar-status">
+          <span>LOCAL API</span>
+          <strong className={localApiConnected ? "is-online" : "is-offline"}>
+            {localStatusLabel}
+          </strong>
+          <small>{localApiUrl}</small>
+        </div>
+
+        <div className="dashboard-sidebar-controls">
+          <select
+            aria-label="Dashboard accent color"
+            value={accent}
+            onChange={(event) => onAccentChange(event.target.value as Accent)}
           >
-            {loadState === "loading" ? "REFRESHING" : "REFRESH DATA"}
+            <option value="orange">ORANGE</option>
+            <option value="green">GREEN</option>
+            <option value="blue">BLUE</option>
+            <option value="fuchsia">FUCHSIA</option>
+          </select>
+          <Button variant="outline" onClick={onThemeChange}>
+            {theme === "dark" ? "LIGHT MODE" : "OLED MODE"}
           </Button>
           <Button variant="ghost" onClick={onSignOut}>
             SIGN OUT
           </Button>
         </div>
-      </section>
+      </aside>
 
-      {dashboardError ? (
-        <div className="authentication-notice authentication-notice-error dashboard-notice">
-          <span>API_ERROR</span>
-          <strong>{dashboardError}</strong>
-          <button type="button" onClick={() => void loadDashboard()}>
-            RETRY
-          </button>
-        </div>
-      ) : null}
-
-      <section className="dashboard-status-grid">
-        <Card className="dashboard-status-card">
-          <span className="dashboard-status-label">SESSION</span>
-          <strong>ACTIVE</strong>
-          <span className="dashboard-status-detail">
-            EXPIRES {tokenExpiresAt.toLocaleString()}
-          </span>
-        </Card>
-        <Card className="dashboard-status-card">
-          <span className="dashboard-status-label">CLOUD API</span>
-          <strong>{apiConnected ? "CONNECTED" : loadState.toUpperCase()}</strong>
-          <span className="dashboard-status-detail">{getApiBaseUrl()}</span>
-        </Card>
-        <Card className="dashboard-status-card">
-          <span className="dashboard-status-label">GATEWAYS</span>
-          <strong>{String(gatewayRecords.length).padStart(2, "0")}</strong>
-          <span className="dashboard-status-detail">REGISTRY RECORDS</span>
-        </Card>
-      </section>
-
-      <section className="dashboard-grid">
-        <Card className="dashboard-panel">
-          <div className="dashboard-panel-heading">
-            <div>
-              <span className="dashboard-panel-kicker">IDENTITY::VERIFIED</span>
-              <h2>ACCOUNT</h2>
-            </div>
-            <span className="dashboard-online-indicator">ONLINE</span>
+      <div className="dashboard-workspace">
+        <header className="dashboard-topbar">
+          <div className="dashboard-breadcrumb">
+            <span>OPENMODEL</span>
+            <span>/</span>
+            <strong>{activeRouteLabel}</strong>
           </div>
 
-          <dl className="dashboard-definition-list">
-            <div>
-              <dt>NAME</dt>
-              <dd>{displayedName}</dd>
-            </div>
-            <div>
-              <dt>EMAIL</dt>
-              <dd>{displayedEmail ?? "NOT PROVIDED"}</dd>
-            </div>
-            <div>
-              <dt>USER ID</dt>
-              <dd>{dashboardUser?.id ?? localUser?.sub ?? "UNKNOWN"}</dd>
-            </div>
-            <div>
-              <dt>CLIENT ID</dt>
-              <dd>{dashboardUser?.clientId ?? "COGNITO WEB CLIENT"}</dd>
-            </div>
-          </dl>
+          <div className="dashboard-browser-session">
+            <span className="dashboard-browser-session-status"></span>
+            <span>
+              <strong>{displayedName}</strong>
+              <small>BROWSER SESSION · COGNITO</small>
+            </span>
+            <span className="dashboard-user-avatar dashboard-user-avatar-small">
+              {userInitials}
+            </span>
+          </div>
+        </header>
 
-          <div className="dashboard-tag-section">
-            <span>GROUPS</span>
-            <div className="dashboard-tags">
-              {displayedGroups.length > 0 ? (
-                displayedGroups.map((group) => <code key={group}>{group}</code>)
+        <div className="dashboard-content">
+          {activeRoute === "overview" ? (
+            <section className="dashboard-section dashboard-overview dashboard-page-view">
+              <div className="dashboard-page-heading">
+                <div>
+                  <Badge>AUTHENTICATED CONTROL PLANE</Badge>
+                  <h1>LOCAL INFERENCE WORKSPACE</h1>
+                  <p>
+                    Connect the browser to the OpenModel runtime on this computer,
+                    select an installed model, and copy the API request you need.
+                  </p>
+                </div>
+                <div className="dashboard-page-actions">
+                  <Button
+                    variant="outline"
+                    disabled={cloudRefreshing}
+                    onClick={() => void loadDashboard()}
+                  >
+                    {cloudRefreshing ? "SYNCING CLOUD" : "REFRESH CLOUD"}
+                  </Button>
+                  <Button variant="ghost" onClick={navigateHome}>
+                    VIEW SITE
+                  </Button>
+                </div>
+              </div>
+
+              {dashboardError ? (
+                <div className="authentication-notice authentication-notice-error dashboard-notice">
+                  <span>API_WARNING</span>
+                  <strong>{dashboardError}</strong>
+                  <button type="button" onClick={() => void loadDashboard()}>
+                    RETRY
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="dashboard-status-grid dashboard-status-grid-four">
+                <Card className="dashboard-status-card">
+                  <span className="dashboard-status-label">BROWSER SESSION</span>
+                  <strong>ACTIVE</strong>
+                  <span className="dashboard-status-detail">
+                    EXPIRES {tokenExpiresAt.toLocaleTimeString()}
+                  </span>
+                </Card>
+                <Card className="dashboard-status-card">
+                  <span className="dashboard-status-label">CLOUD API</span>
+                  <strong>{cloudStatus}</strong>
+                  <span className="dashboard-status-detail">
+                    {cloudRefreshing
+                      ? "SYNCING IN BACKGROUND"
+                      : lastCloudSyncAt
+                        ? `SYNCED ${new Date(lastCloudSyncAt).toLocaleTimeString()}`
+                        : getApiBaseUrl()}
+                  </span>
+                </Card>
+                <Card className="dashboard-status-card">
+                  <span className="dashboard-status-label">GATEWAYS</span>
+                  <strong>{String(gatewayRecords.length).padStart(2, "0")}</strong>
+                  <span className="dashboard-status-detail">AVAILABLE SOURCES</span>
+                </Card>
+                <Card className="dashboard-status-card">
+                  <span className="dashboard-status-label">LOCAL MODELS</span>
+                  <strong>{String(localModels.length).padStart(2, "0")}</strong>
+                  <span className="dashboard-status-detail">{localStatusLabel}</span>
+                </Card>
+              </div>
+
+              <div className="dashboard-overview-actions">
+                <Card className="dashboard-overview-action-card">
+                  <span className="dashboard-panel-kicker">NEXT ACTION</span>
+                  <h3>
+                    {localApiConnected
+                      ? localModels.length > 0
+                        ? "SELECT A MODEL AND SEND A REQUEST"
+                        : "INSTALL YOUR FIRST LOCAL MODEL"
+                      : "CONNECT YOUR LOCAL OPENMODEL RUNTIME"}
+                  </h3>
+                  <p>
+                    {localApiConnected
+                      ? localModels.length > 0
+                        ? "Your runtime is online. Open Models to select an installed model and copy a ready-to-run request."
+                        : "The runtime is online and ready. Open Models, then install the recommended starter model with one click."
+                      : "Start om serve once, then Open Models and install the recommended starter model directly from the dashboard."}
+                  </p>
+                  <Button onClick={() => navigateDashboard("models")}>
+                    OPEN MODELS
+                  </Button>
+                </Card>
+
+                <Card className="dashboard-overview-action-card">
+                  <span className="dashboard-panel-kicker">LOCAL AI WORKFLOW</span>
+                  <h3>USE YOUR MODEL IN BUILDERSTUDIO</h3>
+                  <p>
+                    Generate the exact local provider configuration for the model
+                    selected on this computer, then start asking questions or
+                    making code changes from your project directory.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => navigateDashboard("builderstudio")}
+                  >
+                    OPEN MODEL WORKFLOW
+                  </Button>
+                </Card>
+
+                <Card className="dashboard-overview-action-card">
+                  <span className="dashboard-panel-kicker">DOCUMENTATION</span>
+                  <h3>GENERATE PROJECT DOCS WITH DOKU.SH</h3>
+                  <p>
+                    Create docs.json, llms-full.txt, and a packed documentation
+                    portal while your project evolves.
+                  </p>
+                  <Button variant="outline" onClick={() => navigateDashboard("doku")}>
+                    OPEN DOKU WORKFLOW
+                  </Button>
+                </Card>
+
+                <Card className="dashboard-overview-action-card">
+                  <span className="dashboard-panel-kicker">CLOUD REGISTRY</span>
+                  <h3>{gatewayRecords.length} GATEWAYS AVAILABLE</h3>
+                  <p>
+                    Review supported URI schemes and capabilities before choosing
+                    the source for your next model pull.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => navigateDashboard("gateways")}
+                  >
+                    VIEW GATEWAYS
+                  </Button>
+                </Card>
+              </div>
+            </section>
+          ) : null}
+
+          {activeRoute === "models" ? (
+            <section className="dashboard-section dashboard-page-view">
+              <div className="dashboard-section-header">
+                <div>
+                  <span className="dashboard-section-index">02</span>
+                  <Badge>LOCAL MODEL LIBRARY</Badge>
+                  <h2>INSTALL AND RUN A MODEL</h2>
+                  <p>
+                    Start the local OpenModel service once. After that, the
+                    dashboard can download a recommended model directly to this
+                    computer and show live progress.
+                  </p>
+                </div>
+                <span
+                  className={`dashboard-connection-state dashboard-connection-${localApiState}`}
+                >
+                  {localStatusLabel}
+                </span>
+              </div>
+
+              <Card className="dashboard-local-api-panel">
+                <form
+                  className="dashboard-local-api-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void loadLocalModelRegistry(localApiInput);
+                  }}
+                >
+                  <label htmlFor="local-api-url">LOCAL SERVICE</label>
+                  <input
+                    id="local-api-url"
+                    type="url"
+                    value={localApiInput}
+                    onChange={(event) => setLocalApiInput(event.target.value)}
+                    spellCheck={false}
+                  />
+                  <Button type="submit" disabled={localApiState === "loading"}>
+                    {localApiState === "loading"
+                      ? "CONNECTING"
+                      : localApiConnected
+                        ? "REFRESH"
+                        : "CONNECT"}
+                  </Button>
+                  {localApiConnected ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={disconnectLocalApi}
+                    >
+                      DISCONNECT
+                    </Button>
+                  ) : null}
+                </form>
+                {localApiError ? (
+                  <p className="dashboard-local-api-error">
+                    Start <code>om serve --port 11435</code>, keep that terminal
+                    open, and try again. <span>{localApiError}</span>
+                  </p>
+                ) : (
+                  <p className="dashboard-local-api-help">
+                    The local service performs the download. Model files never
+                    pass through OpenModel.sh.
+                  </p>
+                )}
+              </Card>
+
+              <Card className={`dashboard-model-installer ${starterModelInstalled ? "is-installed" : ""}`}>
+                <div className="dashboard-model-installer-main">
+                  <div className="dashboard-model-installer-status" aria-hidden="true">
+                    {starterModelInstalled ? "✓" : modelInstallInProgress ? ">_" : "↓"}
+                  </div>
+                  <div className="dashboard-model-installer-copy">
+                    <span className="dashboard-panel-kicker">
+                      {starterModelInstalled
+                        ? "INSTALL::COMPLETE"
+                        : modelInstallInProgress
+                          ? "DOWNLOAD::ACTIVE"
+                          : "RECOMMENDED STARTER"}
+                    </span>
+                    <h3>{displayedStarterModel.name}</h3>
+                    <p>{displayedStarterModel.description}</p>
+                    <div className="dashboard-model-specs">
+                      <span>{displayedStarterModel.parameterCount}</span>
+                      <span>{displayedStarterModel.format}</span>
+                      <span>{formatBytes(displayedStarterModel.sizeBytes)}</span>
+                      <span>{displayedStarterModel.license}</span>
+                    </div>
+                  </div>
+                  <div className="dashboard-model-installer-action">
+                    {starterModelInstalled ? (
+                      <Button
+                        onClick={() => {
+                          if (starterInstalledModelId) {
+                            setSelectedModelId(starterInstalledModelId);
+                          }
+                        }}
+                      >
+                        ✓ INSTALLED
+                      </Button>
+                    ) : (
+                      <Button
+                        disabled={modelInstallInProgress}
+                        onClick={() =>
+                          void installCatalogModel(displayedStarterModel.id)
+                        }
+                      >
+                        {modelInstallInProgress
+                          ? `DOWNLOADING ${modelInstallProgress}%`
+                          : "INSTALL TO THIS MACHINE"}
+                      </Button>
+                    )}
+                    <small>
+                      {localApiConnected
+                        ? "ONE CLICK · SAVED LOCALLY"
+                        : "CONNECTS TO LOCAL SERVICE FIRST"}
+                    </small>
+                  </div>
+                </div>
+
+                {modelInstallJob ? (
+                  <div className="dashboard-model-progress" aria-live="polite">
+                    <div className="dashboard-model-progress-heading">
+                      <span>{modelInstallJob.message}</span>
+                      <strong>{modelInstallProgress}%</strong>
+                    </div>
+                    <div
+                      className="dashboard-model-progress-track"
+                      role="progressbar"
+                      aria-label="Model download progress"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={modelInstallProgress}
+                    >
+                      <span style={{ width: `${modelInstallProgress}%` }}></span>
+                    </div>
+                    <div className="dashboard-model-progress-meta">
+                      <span>{modelInstallJob.stage.toUpperCase()}</span>
+                      <span>
+                        {formatBytes(modelInstallJob.downloadedBytes)} / {formatBytes(
+                          modelInstallJob.totalBytes ?? displayedStarterModel.sizeBytes,
+                        )}
+                      </span>
+                      {modelInstallJob.fileName ? (
+                        <code>{modelInstallJob.fileName}</code>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                {modelInstallError ? (
+                  <div className="dashboard-model-install-error">
+                    <strong>INSTALLATION NEEDS ATTENTION</strong>
+                    <span>{modelInstallError}</span>
+                  </div>
+                ) : null}
+
+                {!localApiConnected ? (
+                  <div className="dashboard-model-service-step">
+                    <div>
+                      <span>ONE-TIME SETUP</span>
+                      <strong>START THE LOCAL OPENMODEL SERVICE</strong>
+                    </div>
+                    <code>om serve --port 11435</code>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void copyCommand("serve-service", "om serve --port 11435")
+                      }
+                    >
+                      {copiedCommand === "serve-service" ? "COPIED" : "COPY"}
+                    </button>
+                  </div>
+                ) : null}
+              </Card>
+
+              <div className="dashboard-model-library-heading">
+                <div>
+                  <span className="dashboard-panel-kicker">LOCAL REGISTRY</span>
+                  <h3>INSTALLED MODELS</h3>
+                </div>
+                <strong>{String(localModels.length).padStart(2, "0")}</strong>
+              </div>
+
+              {localModels.length > 0 ? (
+                <Card className="dashboard-registry-panel dashboard-model-registry-panel">
+                  <div className="dashboard-model-table-header">
+                    <span>MODEL ID</span>
+                    <span>GATEWAY</span>
+                    <span>STATE</span>
+                    <span>ACTION</span>
+                  </div>
+                  {localModels.map((model) => (
+                    <div
+                      className={`dashboard-model-table-row ${
+                        model.id === selectedModelId ? "is-selected" : ""
+                      }`}
+                      key={model.id}
+                    >
+                      <code>{model.id}</code>
+                      <span>{model.owned_by ?? "local"}</span>
+                      <strong>✓ INSTALLED</strong>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedModelId(model.id)}
+                      >
+                        {model.id === selectedModelId ? "SELECTED" : "USE MODEL"}
+                      </button>
+                    </div>
+                  ))}
+                </Card>
               ) : (
-                <code>DEFAULT</code>
+                <Card className="dashboard-empty-models dashboard-empty-models-compact">
+                  <div className="dashboard-empty-models-symbol" aria-hidden="true">
+                    [ ]
+                  </div>
+                  <div>
+                    <span className="dashboard-panel-kicker">REGISTRY::EMPTY</span>
+                    <h3>NO LOCAL MODELS YET</h3>
+                    <p>
+                      Use the Install button above. The model will appear here
+                      automatically when the download completes.
+                    </p>
+                  </div>
+                </Card>
               )}
-            </div>
-          </div>
 
-          <div className="dashboard-tag-section">
-            <span>PERMISSIONS</span>
-            <div className="dashboard-tags">
-              {displayedPermissions.length > 0 ? (
-                displayedPermissions.map((permission) => (
-                  <code key={permission}>{permission}</code>
-                ))
-              ) : (
-                <code>READ ONLY</code>
-              )}
-            </div>
-          </div>
-        </Card>
+              {selectedModel ? (
+                <div className="dashboard-next-step-layout">
+                  <Card className="dashboard-next-step-panel">
+                    <div className="dashboard-panel-heading">
+                      <div>
+                        <span className="dashboard-panel-kicker">NEXT: START INFERENCE</span>
+                        <h3>{selectedModel.id}</h3>
+                      </div>
+                      <span className="dashboard-online-indicator">SELECTED</span>
+                    </div>
+                    <div className="dashboard-command-list">
+                      <DashboardCommand
+                        index="01"
+                        title="SERVE THIS MODEL"
+                        command={serveCommand}
+                        copied={copiedCommand === "serve-selected"}
+                        onCopy={() =>
+                          void copyCommand("serve-selected", serveCommand)
+                        }
+                      />
+                      <DashboardCommand
+                        index="02"
+                        title="SEND A CHAT REQUEST"
+                        command={requestCommand}
+                        copied={copiedCommand === "request"}
+                        onCopy={() => void copyCommand("request", requestCommand)}
+                      />
+                    </div>
+                  </Card>
 
-        <Card className="dashboard-panel dashboard-terminal-panel">
-          <div className="terminal-title">
-            <span></span>
-            <span></span>
-            <span></span>
-            <strong>SESSION::INFO</strong>
-          </div>
-          <CodeBlock>{`$ om auth status
+                  <Card className="dashboard-context-panel">
+                    <span className="dashboard-panel-kicker">CONNECTION DETAILS</span>
+                    <h3>USE IT FROM EXISTING TOOLS</h3>
+                    <p>
+                      Point an OpenAI-compatible client at the local API and use
+                      the selected model ID.
+                    </p>
+                    <dl>
+                      <div>
+                        <dt>OPENAI BASE URL</dt>
+                        <dd>{localApiUrl}/v1</dd>
+                      </div>
+                      <div>
+                        <dt>OLLAMA-COMPATIBLE URL</dt>
+                        <dd>{localApiUrl}/api</dd>
+                      </div>
+                      <div>
+                        <dt>SELECTED MODEL</dt>
+                        <dd>{selectedModel.id}</dd>
+                      </div>
+                    </dl>
+                    <Button
+                      className="dashboard-context-action"
+                      onClick={() => navigateDashboard("builderstudio")}
+                    >
+                      USE WITH BUILDERSTUDIO
+                    </Button>
+                  </Card>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          {activeRoute === "builderstudio" ? (
+            <section className="dashboard-section dashboard-page-view">
+              <div className="dashboard-section-header">
+                <div>
+                  <span className="dashboard-section-index">03</span>
+                  <Badge>LOCAL AI TOOLING</Badge>
+                  <h2>USE YOUR MODEL WITH BUILDERSTUDIO</h2>
+                  <p>
+                    Connect BuilderStudio to the OpenAI-compatible API already
+                    running on this computer. No model files leave your machine.
+                  </p>
+                </div>
+                <div className="dashboard-page-actions">
+                  <a
+                    className="button button-outline"
+                    href="https://www.npmjs.com/package/@wundercorp/bs"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    VIEW NPM PACKAGE
+                  </a>
+                  <Button variant="ghost" onClick={() => navigateDashboard("models")}>
+                    MANAGE MODELS
+                  </Button>
+                </div>
+              </div>
+
+              <Card className="dashboard-tool-readiness">
+                <div className="dashboard-tool-readiness-status">
+                  <span
+                    className={`dashboard-tool-status-dot ${
+                      localApiConnected && activeLocalModelId ? "is-ready" : ""
+                    }`}
+                  ></span>
+                  <div>
+                    <span className="dashboard-panel-kicker">LOCAL MODEL STATUS</span>
+                    <strong>
+                      {!localApiConnected
+                        ? "CONNECT THE LOCAL SERVICE"
+                        : activeLocalModelId
+                          ? "READY FOR BUILDERSTUDIO"
+                          : "INSTALL OR SELECT A MODEL"}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="dashboard-tool-readiness-actions">
+                  {!localApiConnected ? (
+                    <Button
+                      disabled={localApiState === "loading"}
+                      onClick={() => void loadLocalModelRegistry(localApiInput)}
+                    >
+                      {localApiState === "loading" ? "CONNECTING" : "CONNECT LOCAL API"}
+                    </Button>
+                  ) : localModels.length === 0 ? (
+                    <Button onClick={() => navigateDashboard("models")}>
+                      INSTALL A MODEL
+                    </Button>
+                  ) : (
+                    <label className="dashboard-tool-model-select">
+                      <span>MODEL</span>
+                      <select
+                        value={activeLocalModelId}
+                        onChange={(event) => setSelectedModelId(event.target.value)}
+                      >
+                        {localModels.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+              </Card>
+
+              <div className="dashboard-tool-grid">
+                <Card className="dashboard-next-step-panel dashboard-tool-setup-panel">
+                  <div className="dashboard-panel-heading">
+                    <div>
+                      <span className="dashboard-panel-kicker">QUICK SETUP</span>
+                      <h3>CONNECT THE CURRENT PROJECT</h3>
+                    </div>
+                    <button
+                      className="dashboard-copy-all-button"
+                      type="button"
+                      disabled={!activeLocalModelId}
+                      onClick={() =>
+                        void copyCommand(
+                          "builderstudio-all",
+                          builderStudioCompleteSetupCommand,
+                        )
+                      }
+                    >
+                      {copiedCommand === "builderstudio-all"
+                        ? "COPIED"
+                        : "COPY COMPLETE SETUP"}
+                    </button>
+                  </div>
+
+                  {!activeLocalModelId ? (
+                    <div className="dashboard-tool-inline-notice">
+                      Connect the local service and select an installed model to
+                      generate the final commands.
+                    </div>
+                  ) : null}
+
+                  <div className="dashboard-command-list">
+                    <DashboardCommand
+                      index="01"
+                      title="INSTALL BUILDERSTUDIO"
+                      command={builderStudioInstallCommand}
+                      copied={copiedCommand === "builderstudio-install"}
+                      onCopy={() =>
+                        void copyCommand(
+                          "builderstudio-install",
+                          builderStudioInstallCommand,
+                        )
+                      }
+                    />
+                    <DashboardCommand
+                      index="02"
+                      title="INITIALIZE THIS PROJECT"
+                      command={`cd /path/to/your/project
+${builderStudioInitializeCommand}`}
+                      copied={copiedCommand === "builderstudio-init"}
+                      onCopy={() =>
+                        void copyCommand(
+                          "builderstudio-init",
+                          `cd /path/to/your/project
+${builderStudioInitializeCommand}`,
+                        )
+                      }
+                    />
+                    <DashboardCommand
+                      index="03"
+                      title="REGISTER OPENMODEL"
+                      command={builderStudioImportCommand}
+                      copied={copiedCommand === "builderstudio-import"}
+                      onCopy={() =>
+                        void copyCommand(
+                          "builderstudio-import",
+                          builderStudioImportCommand,
+                        )
+                      }
+                    />
+                    <DashboardCommand
+                      index="04"
+                      title="MAKE IT THE DEFAULT MODEL"
+                      command={builderStudioSelectCommand}
+                      copied={copiedCommand === "builderstudio-select"}
+                      onCopy={() =>
+                        void copyCommand(
+                          "builderstudio-select",
+                          builderStudioSelectCommand,
+                        )
+                      }
+                    />
+                    <DashboardCommand
+                      index="05"
+                      title="VERIFY THE CONNECTION"
+                      command={builderStudioTestCommand}
+                      copied={copiedCommand === "builderstudio-test"}
+                      onCopy={() =>
+                        void copyCommand(
+                          "builderstudio-test",
+                          builderStudioTestCommand,
+                        )
+                      }
+                    />
+                  </div>
+                </Card>
+
+                <div className="dashboard-tool-side-column">
+                  <Card className="dashboard-context-panel dashboard-tool-summary">
+                    <span className="dashboard-panel-kicker">ACTIVE CONFIGURATION</span>
+                    <h3>OPENMODEL LOCAL</h3>
+                    <p>
+                      BuilderStudio sends OpenAI-compatible chat completion
+                      requests directly to your local OpenModel service.
+                    </p>
+                    <dl>
+                      <div>
+                        <dt>PROFILE</dt>
+                        <dd>{builderStudioProfileId}</dd>
+                      </div>
+                      <div>
+                        <dt>BASE URL</dt>
+                        <dd>{builderStudioBaseUrl}</dd>
+                      </div>
+                      <div>
+                        <dt>MODEL</dt>
+                        <dd>{builderStudioModelId}</dd>
+                      </div>
+                      <div>
+                        <dt>ROUTING</dt>
+                        <dd>STRICT · NO FALLBACKS</dd>
+                      </div>
+                    </dl>
+                  </Card>
+
+                  <Card className="dashboard-next-step-panel dashboard-tool-try-panel">
+                    <div className="dashboard-panel-heading">
+                      <div>
+                        <span className="dashboard-panel-kicker">TRY IT</span>
+                        <h3>ASK ABOUT YOUR PROJECT</h3>
+                      </div>
+                    </div>
+                    <DashboardCommand
+                      index="$"
+                      title="WORKSPACE-AWARE QUESTION"
+                      command={builderStudioAskCommand}
+                      copied={copiedCommand === "builderstudio-ask"}
+                      onCopy={() =>
+                        void copyCommand(
+                          "builderstudio-ask",
+                          builderStudioAskCommand,
+                        )
+                      }
+                    />
+                  </Card>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {activeRoute === "doku" ? (
+            <section className="dashboard-section dashboard-page-view">
+              <div className="dashboard-section-header">
+                <div>
+                  <span className="dashboard-section-index">04</span>
+                  <Badge>DOCUMENTATION WORKFLOW</Badge>
+                  <h2>GENERATE DOCS AS YOU BUILD</h2>
+                  <p>
+                    Doku creates project metadata, an LLM-readable documentation
+                    file, and a packed portal you can open on doku.sh.
+                  </p>
+                </div>
+                <div className="dashboard-page-actions">
+                  <a
+                    className="button"
+                    href="https://doku.sh"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    OPEN DOKU.SH
+                  </a>
+                  <a
+                    className="button button-outline"
+                    href="https://www.npmjs.com/package/@wundercorp/doku"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    VIEW NPM PACKAGE
+                  </a>
+                </div>
+              </div>
+
+              <div className="dashboard-tool-grid">
+                <Card className="dashboard-next-step-panel dashboard-tool-setup-panel">
+                  <div className="dashboard-panel-heading">
+                    <div>
+                      <span className="dashboard-panel-kicker">FAST PATH</span>
+                      <h3>CREATE AND OPEN YOUR DOCS</h3>
+                    </div>
+                    <button
+                      className="dashboard-copy-all-button"
+                      type="button"
+                      onClick={() =>
+                        void copyCommand("doku-all", dokuCompleteSetupCommand)
+                      }
+                    >
+                      {copiedCommand === "doku-all"
+                        ? "COPIED"
+                        : "COPY COMPLETE SETUP"}
+                    </button>
+                  </div>
+
+                  <div className="dashboard-command-list">
+                    <DashboardCommand
+                      index="01"
+                      title="INSTALL DOKU"
+                      command={dokuInstallCommand}
+                      copied={copiedCommand === "doku-install"}
+                      onCopy={() =>
+                        void copyCommand("doku-install", dokuInstallCommand)
+                      }
+                    />
+                    <DashboardCommand
+                      index="02"
+                      title="GENERATE PROJECT DOCS"
+                      command={`cd /path/to/your/project
+${dokuGenerateCommand}`}
+                      copied={copiedCommand === "doku-generate"}
+                      onCopy={() =>
+                        void copyCommand(
+                          "doku-generate",
+                          `cd /path/to/your/project
+${dokuGenerateCommand}`,
+                        )
+                      }
+                    />
+                    <DashboardCommand
+                      index="03"
+                      title="PACK THE PORTAL"
+                      command={dokuPackCommand}
+                      copied={copiedCommand === "doku-pack"}
+                      onCopy={() => void copyCommand("doku-pack", dokuPackCommand)}
+                    />
+                    <DashboardCommand
+                      index="04"
+                      title="OPEN IT ON DOKU.SH"
+                      command={dokuOpenCommand}
+                      copied={copiedCommand === "doku-open"}
+                      onCopy={() => void copyCommand("doku-open", dokuOpenCommand)}
+                    />
+                  </div>
+                </Card>
+
+                <div className="dashboard-tool-side-column">
+                  <Card className="dashboard-context-panel dashboard-tool-summary">
+                    <span className="dashboard-panel-kicker">GENERATED OUTPUT</span>
+                    <h3>FILES DOKU CREATES</h3>
+                    <div className="dashboard-tool-file-list">
+                      <div>
+                        <code>docs.json</code>
+                        <span>Navigation and documentation metadata.</span>
+                      </div>
+                      <div>
+                        <code>llms-full.txt</code>
+                        <span>LLM-readable project context and docs.</span>
+                      </div>
+                      <div>
+                        <code>doku.docs.json</code>
+                        <span>Packed navigation and page content for the portal.</span>
+                      </div>
+                    </div>
+                  </Card>
+
+                  <Card className="dashboard-next-step-panel dashboard-tool-try-panel">
+                    <div className="dashboard-panel-heading">
+                      <div>
+                        <span className="dashboard-panel-kicker">ONGOING WORKFLOW</span>
+                        <h3>REFRESH DOCS AFTER CHANGES</h3>
+                      </div>
+                    </div>
+                    <DashboardCommand
+                      index="$"
+                      title="REGENERATE AND PACK"
+                      command={dokuRefreshCommand}
+                      copied={copiedCommand === "doku-refresh"}
+                      onCopy={() =>
+                        void copyCommand("doku-refresh", dokuRefreshCommand)
+                      }
+                    />
+                  </Card>
+                </div>
+              </div>
+
+              <Card className="dashboard-tool-package-script">
+                <div className="dashboard-panel-heading">
+                  <div>
+                    <span className="dashboard-panel-kicker">OPTIONAL AUTOMATION</span>
+                    <h3>ADD DOKU TO PACKAGE.JSON</h3>
+                  </div>
+                  <button
+                    className="dashboard-copy-all-button"
+                    type="button"
+                    onClick={() =>
+                      void copyCommand("doku-package-scripts", dokuPackageScripts)
+                    }
+                  >
+                    {copiedCommand === "doku-package-scripts"
+                      ? "COPIED"
+                      : "COPY SCRIPTS"}
+                  </button>
+                </div>
+                <CodeBlock>{dokuPackageScripts}</CodeBlock>
+              </Card>
+            </section>
+          ) : null}
+
+          {activeRoute === "gateways" ? (
+            <section className="dashboard-section dashboard-page-view">
+              <div className="dashboard-section-header">
+                <div>
+                  <span className="dashboard-section-index">05</span>
+                  <Badge>LIVE CLOUD REGISTRY</Badge>
+                  <h2>AVAILABLE GATEWAYS</h2>
+                  <p>
+                    Gateways tell the CLI how to resolve and download a model.
+                    Choose one, then use its scheme in <code>om pull</code>.
+                  </p>
+                </div>
+                <a
+                  className="button button-outline"
+                  href="https://github.com/wundercorp/openmodel/blob/main/docs/gateway-authoring.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  AUTHOR A GATEWAY
+                </a>
+              </div>
+
+              {dashboardError ? (
+                <div className="authentication-notice authentication-notice-error dashboard-notice">
+                  <span>REGISTRY_WARNING</span>
+                  <strong>{dashboardError}</strong>
+                  <button type="button" onClick={() => void loadDashboard()}>
+                    RETRY
+                  </button>
+                </div>
+              ) : null}
+
+              <Card className="dashboard-registry-panel">
+                <div className="dashboard-table-header">
+                  <span>ID</span>
+                  <span>NAME</span>
+                  <span>SCHEMES</span>
+                  <span>CAPABILITIES</span>
+                </div>
+                {loadState === "loading" && gatewayRecords.length === 0 ? (
+                  <div className="dashboard-table-empty">LOADING REGISTRY...</div>
+                ) : gatewayRecords.length === 0 ? (
+                  <div className="dashboard-table-empty">NO GATEWAYS RETURNED</div>
+                ) : (
+                  gatewayRecords.map((gateway) => (
+                    <div className="dashboard-table-row" key={gateway.id}>
+                      <code>{gateway.id}</code>
+                      <strong>{gateway.name}</strong>
+                      <span>{gateway.schemes?.join(", ") ?? "package"}</span>
+                      <span>
+                        {gateway.capabilities?.join(", ") ??
+                          gateway.packageName ??
+                          "registered"}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </Card>
+            </section>
+          ) : null}
+
+          {activeRoute === "account" ? (
+            <section className="dashboard-section dashboard-page-view">
+              <div className="dashboard-section-header">
+                <div>
+                  <span className="dashboard-section-index">06</span>
+                  <Badge>AUTHENTICATED USER</Badge>
+                  <h2>ACCOUNT AND SESSION</h2>
+                  <p>
+                    Identity details come from the verified Cognito access token
+                    and the OpenModel cloud API.
+                  </p>
+                </div>
+              </div>
+
+              <div className="dashboard-grid">
+                <Card className="dashboard-panel">
+                  <div className="dashboard-panel-heading">
+                    <div>
+                      <span className="dashboard-panel-kicker">IDENTITY::VERIFIED</span>
+                      <h3>ACCOUNT</h3>
+                    </div>
+                    <span className="dashboard-online-indicator">ONLINE</span>
+                  </div>
+
+                  <dl className="dashboard-definition-list">
+                    <div>
+                      <dt>NAME</dt>
+                      <dd>{displayedName}</dd>
+                    </div>
+                    <div>
+                      <dt>EMAIL</dt>
+                      <dd>{displayedEmail ?? "NOT PROVIDED"}</dd>
+                    </div>
+                    <div>
+                      <dt>USER ID</dt>
+                      <dd>{dashboardUser?.id ?? localUser?.sub ?? "UNKNOWN"}</dd>
+                    </div>
+                    <div>
+                      <dt>CLIENT ID</dt>
+                      <dd>{dashboardUser?.clientId ?? "COGNITO WEB CLIENT"}</dd>
+                    </div>
+                  </dl>
+
+                  <div className="dashboard-tag-section">
+                    <span>GROUPS</span>
+                    <div className="dashboard-tags">
+                      {displayedGroups.length > 0 ? (
+                        displayedGroups.map((group) => <code key={group}>{group}</code>)
+                      ) : (
+                        <code>DEFAULT</code>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="dashboard-tag-section">
+                    <span>PERMISSIONS</span>
+                    <div className="dashboard-tags">
+                      {displayedPermissions.length > 0 ? (
+                        displayedPermissions.map((permission) => (
+                          <code key={permission}>{permission}</code>
+                        ))
+                      ) : (
+                        <code>READ ONLY</code>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+
+                <Card className="dashboard-panel dashboard-terminal-panel">
+                  <div className="terminal-title">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <strong>SESSION::INFO</strong>
+                  </div>
+                  <CodeBlock>{`$ om auth status
 authenticated: true
 provider: amazon-cognito
-api: ${getApiBaseUrl()}
+cloud-api: ${getApiBaseUrl()}
+local-api: ${localApiUrl}
+local-api-state: ${localStatusLabel.toLowerCase()}
 expires: ${tokenExpiresAt.toISOString()}
 
 $ om gateway list
-${gatewayRecords
-  .map((gateway) => `${gateway.id.padEnd(14)} ${gateway.name}`)
-  .join("\n") || "loading..."}`}</CodeBlock>
-        </Card>
-      </section>
+${
+  gatewayRecords
+    .map((gateway) => `${gateway.id.padEnd(14)} ${gateway.name}`)
+    .join("\n") || "loading..."
+}
 
-      <section className="dashboard-registry-section">
-        <div className="section-heading dashboard-section-heading">
-          <Badge>LIVE REGISTRY</Badge>
-          <h2>AVAILABLE GATEWAYS</h2>
-          <p>
-            Public gateway metadata loaded from the deployed OpenModel cloud
-            API.
-          </p>
+$ curl ${localApiUrl}/v1/models
+${
+  localApiConnected
+    ? localModels.map((model) => model.id).join("\n") || "no local models returned"
+    : "not requested by this browser session"
+}`}</CodeBlock>
+                </Card>
+              </div>
+            </section>
+          ) : null}
         </div>
 
-        <Card className="dashboard-registry-panel">
-          <div className="dashboard-table-header">
-            <span>ID</span>
-            <span>NAME</span>
-            <span>SCHEMES</span>
-            <span>CAPABILITIES</span>
+        <footer className="dashboard-footer">
+          <span>OPENMODEL.SH // AUTHENTICATED BROWSER WORKSPACE</span>
+          <div>
+            <a
+              href="https://github.com/wundercorp"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GITHUB
+            </a>
+            <a
+              href="https://discord.gg/w6htGsCkx6"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              DISCORD
+            </a>
+            <button type="button" onClick={onSignOut}>
+              SIGN OUT
+            </button>
           </div>
-          {loadState === "loading" && gatewayRecords.length === 0 ? (
-            <div className="dashboard-table-empty">LOADING REGISTRY...</div>
-          ) : gatewayRecords.length === 0 ? (
-            <div className="dashboard-table-empty">NO GATEWAYS RETURNED</div>
-          ) : (
-            gatewayRecords.map((gateway) => (
-              <div className="dashboard-table-row" key={gateway.id}>
-                <code>{gateway.id}</code>
-                <strong>{gateway.name}</strong>
-                <span>{gateway.schemes?.join(", ") ?? "package"}</span>
-                <span>
-                  {gateway.capabilities?.join(", ") ??
-                    gateway.packageName ??
-                    "registered"}
-                </span>
-              </div>
-            ))
-          )}
-        </Card>
-      </section>
+        </footer>
+      </div>
     </main>
+  );
+}
+interface DashboardCommandProps {
+  index: string;
+  title: string;
+  command: string;
+  copied: boolean;
+  onCopy: () => void;
+}
+
+function DashboardCommand({
+  index,
+  title,
+  command,
+  copied,
+  onCopy,
+}: DashboardCommandProps) {
+  return (
+    <div className="dashboard-command">
+      <span className="dashboard-command-index">{index}</span>
+      <div>
+        <strong>{title}</strong>
+        <code>{command}</code>
+      </div>
+      <button type="button" onClick={onCopy}>
+        {copied ? "COPIED" : "COPY"}
+      </button>
+    </div>
   );
 }
 

@@ -231,7 +231,7 @@ curl http://127.0.0.1:8787/health
 curl http://127.0.0.1:8787/v1/gateways
 ```
 
-The protected endpoints continue to validate real RS256 access tokens from the configured issuer. For Cognito, set `AUTH_AUDIENCE` to the generated app client ID and obtain an access token whose `client_id` matches that value:
+The protected endpoints continue to validate real RS256 access tokens from the configured issuer. For Cognito, set `AUTH_AUDIENCE` to the same generated app client ID used by the web application and obtain an access token whose `client_id` matches that value. After changing the app client ID, sign out and sign in again so the browser does not reuse a token from the previous client:
 
 ```bash
 curl http://127.0.0.1:8787/v1/me \
