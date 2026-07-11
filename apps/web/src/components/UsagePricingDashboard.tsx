@@ -235,38 +235,214 @@ function FilterableSelect({
   onChange,
 }: FilterableSelectProps) {
   const generatedListId = useId();
-  const optionListId = `openmodel-pricing-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${generatedListId.replace(/[^a-z0-9]+/gi, "")}`;
-  const visibleOptions = useMemo(
-    () => uniqueSorted(value ? [value, ...options] : options),
-    [options, value],
-  );
+  const inputId = `openmodel-pricing-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${generatedListId.replace(/[^a-z0-9]+/gi, "")}`;
+  const optionListId = `${inputId}-options`;
+  const componentRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [filterValue, setFilterValue] = useState("");
+  const [activeOptionIndex, setActiveOptionIndex] = useState(-1);
+  const normalizedOptions = useMemo(() => uniqueSorted(options), [options]);
+  const visibleOptions = useMemo(() => {
+    const normalizedFilterValue = filterValue.trim().toLowerCase();
+    if (!normalizedFilterValue) {
+      return normalizedOptions;
+    }
+    return normalizedOptions.filter((option) => option.toLowerCase().includes(normalizedFilterValue));
+  }, [filterValue, normalizedOptions]);
+
+  const openOptions = useCallback(() => {
+    if (disabled) {
+      return;
+    }
+    setFilterValue("");
+    setActiveOptionIndex(-1);
+    setIsOpen(true);
+  }, [disabled]);
+
+  const closeOptions = useCallback(() => {
+    setIsOpen(false);
+    setFilterValue("");
+    setActiveOptionIndex(-1);
+  }, []);
+
+  const selectOption = useCallback((option: string) => {
+    onChange(option);
+    closeOptions();
+    inputRef.current?.focus();
+  }, [closeOptions, onChange]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!componentRef.current?.contains(event.target as Node)) {
+        closeOptions();
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [closeOptions, isOpen]);
+
+  useEffect(() => {
+    if (disabled) {
+      closeOptions();
+    }
+  }, [closeOptions, disabled]);
+
+  useEffect(() => {
+    if (activeOptionIndex >= visibleOptions.length) {
+      setActiveOptionIndex(visibleOptions.length > 0 ? visibleOptions.length - 1 : -1);
+    }
+  }, [activeOptionIndex, visibleOptions.length]);
+
+  const handleInputChange = (nextValue: string) => {
+    onChange(nextValue);
+    setFilterValue(nextValue);
+    setActiveOptionIndex(-1);
+    if (!disabled) {
+      setIsOpen(true);
+    }
+  };
+
+  const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (!isOpen) {
+        openOptions();
+        return;
+      }
+      setActiveOptionIndex((currentIndex) =>
+        visibleOptions.length === 0 ? -1 : Math.min(currentIndex + 1, visibleOptions.length - 1),
+      );
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!isOpen) {
+        openOptions();
+        return;
+      }
+      setActiveOptionIndex((currentIndex) =>
+        visibleOptions.length === 0
+          ? -1
+          : currentIndex <= 0
+            ? visibleOptions.length - 1
+            : currentIndex - 1,
+      );
+      return;
+    }
+
+    if (event.key === "Enter" && isOpen && activeOptionIndex >= 0) {
+      event.preventDefault();
+      const activeOption = visibleOptions[activeOptionIndex];
+      if (activeOption) {
+        selectOption(activeOption);
+      }
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeOptions();
+      return;
+    }
+
+    if (event.key === "Tab") {
+      closeOptions();
+    }
+  };
+
+  const activeOptionId = activeOptionIndex >= 0
+    ? `${optionListId}-${activeOptionIndex}`
+    : undefined;
 
   return (
-    <label className="dashboard-pricing-filterable-select">
-      <span>{label}</span>
-      <input
-        type="text"
-        list={optionListId}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={loading ? "LOADING CATALOG" : `SELECT OR TYPE ${label}`}
-        autoComplete="off"
-        aria-label={`${label.toLowerCase()} pricing profile`}
-        disabled={disabled}
-      />
-      <datalist id={optionListId}>
-        {visibleOptions.map((option) => (
-          <option value={option} key={option} />
-        ))}
-      </datalist>
+    <div className="dashboard-pricing-filterable-select" ref={componentRef}>
+      <label htmlFor={inputId}>{label}</label>
+      <div className="dashboard-pricing-combobox-control">
+        <input
+          ref={inputRef}
+          id={inputId}
+          type="text"
+          value={value}
+          onChange={(event) => handleInputChange(event.target.value)}
+          onFocus={openOptions}
+          onClick={openOptions}
+          onKeyDown={handleInputKeyDown}
+          placeholder={loading ? "LOADING CATALOG" : `SELECT OR TYPE ${label}`}
+          autoComplete="off"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={isOpen}
+          aria-controls={optionListId}
+          aria-activedescendant={activeOptionId}
+          aria-label={`${label.toLowerCase()} pricing profile`}
+          disabled={disabled}
+        />
+        <button
+          type="button"
+          className="dashboard-pricing-combobox-toggle"
+          aria-label={`${isOpen ? "Close" : "Open"} ${label.toLowerCase()} options`}
+          aria-expanded={isOpen}
+          aria-controls={optionListId}
+          disabled={disabled}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            if (isOpen) {
+              closeOptions();
+            } else {
+              openOptions();
+              inputRef.current?.focus();
+            }
+          }}
+        >
+          <span aria-hidden="true">{isOpen ? "▲" : "▼"}</span>
+        </button>
+      </div>
+      {isOpen ? (
+        <div
+          id={optionListId}
+          className="dashboard-pricing-combobox-options"
+          role="listbox"
+          aria-label={`${label.toLowerCase()} catalog options`}
+        >
+          {visibleOptions.length > 0 ? visibleOptions.map((option, optionIndex) => (
+            <button
+              type="button"
+              id={`${optionListId}-${optionIndex}`}
+              role="option"
+              aria-selected={option === value}
+              className={optionIndex === activeOptionIndex ? "is-active" : undefined}
+              key={option}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setActiveOptionIndex(optionIndex)}
+              onClick={() => selectOption(option)}
+            >
+              <span>{option}</span>
+              {option === value ? <strong>SELECTED</strong> : null}
+            </button>
+          )) : (
+            <div className="dashboard-pricing-combobox-empty">
+              {normalizedOptions.length > 0
+                ? `NO OPTIONS MATCH “${filterValue}”`
+                : "NO CATALOG OPTIONS AVAILABLE"}
+            </div>
+          )}
+        </div>
+      ) : null}
       <small>
         {loading
           ? "LOADING REMOTE CATALOG"
-          : options.length > 0
-            ? `${formatInteger(options.length)} CATALOG OPTION${options.length === 1 ? "" : "S"}`
+          : normalizedOptions.length > 0
+            ? `${formatInteger(normalizedOptions.length)} CATALOG OPTION${normalizedOptions.length === 1 ? "" : "S"} · CLICK TO OPEN`
             : "NO REMOTE OPTIONS · TYPE A VALUE"}
       </small>
-    </label>
+    </div>
   );
 }
 
