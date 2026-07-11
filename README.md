@@ -4,6 +4,10 @@ OpenModel is a gateway-first local model runtime distributed as `@wundercorp/ope
 
 <img width="1138" height="720" alt="Bazaart_C1455751-0317-490B-9B26-0165F4BB215E" src="https://github.com/user-attachments/assets/84f5567c-8fbb-4bc8-b42a-32a9e9d92a11" />
 
+## Documentation
+https://doku.sh/#/i/a8cb5b73686a2bd50e-511db60796c841
+Auto-Generated via https://doku.sh
+
 It provides:
 
 - `om pull` for Hugging Face GGUF files, direct artifact URLs, Ollama model references, and contributed gateways

@@ -10,6 +10,8 @@ import { startLocalServer } from './server/http.js';
 import { login, logout, whoami } from './lib/auth.js';
 import { runProcess } from './lib/process.js';
 import { printOpenModelBanner } from './ui/banner.mjs';
+import { estimateCloudCost, fetchUsageSummary, submitUsageEvents } from './lib/wundership-pricing.js';
+import { clearUsageEvents, readUsageEvents } from './lib/usage-ledger.js';
 
 const helpText = `om <command> [options]
 
@@ -26,6 +28,8 @@ Commands:
   logout
   whoami
   doctor
+  pricing <provider> <model> --input-tokens N --output-tokens N
+  usage summary|sync
   help
 
 References:
@@ -50,6 +54,8 @@ export async function main(argv) {
   if (command === 'logout') return logout();
   if (command === 'whoami') return process.stdout.write(`${JSON.stringify(await whoami(), null, 2)}\n`);
   if (command === 'doctor') return doctorCommand();
+  if (command === 'pricing') return pricingCommand(positionals, flags);
+  if (command === 'usage') return usageCommand(positionals, flags);
   throw new Error(`Unknown command "${command}". Run om help.`);
 }
 
@@ -163,3 +169,43 @@ async function doctorCommand() {
 }
 
 export { loadGateways, resolveReference, startLocalServer };
+
+
+async function pricingCommand(positionals, flags) {
+  const [provider, model] = positionals;
+  if (!provider || !model) throw new Error('Usage: om pricing <provider> <model> --input-tokens N --output-tokens N');
+  const result = await estimateCloudCost({
+    provider,
+    model,
+    region: getFlag(flags, 'region'),
+    serviceTier: getFlag(flags, 'service-tier'),
+    usage: {
+      inputTokens: Number(getFlag(flags, 'input-tokens') ?? 0),
+      outputTokens: Number(getFlag(flags, 'output-tokens') ?? 0),
+      cachedInputTokens: Number(getFlag(flags, 'cached-input-tokens') ?? 0),
+      cacheWriteTokens: Number(getFlag(flags, 'cache-write-tokens') ?? 0),
+      reasoningTokens: Number(getFlag(flags, 'reasoning-tokens') ?? 0)
+    }
+  });
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function usageCommand(positionals) {
+  const action = positionals[0] ?? 'summary';
+  if (action === 'summary') {
+    process.stdout.write(`${JSON.stringify(await fetchUsageSummary(), null, 2)}\n`);
+    return;
+  }
+  if (action === 'sync') {
+    const events = await readUsageEvents();
+    if (events.length === 0) {
+      process.stdout.write('No local usage events are waiting to sync.\n');
+      return;
+    }
+    const result = await submitUsageEvents(events);
+    await clearUsageEvents();
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+  throw new Error('Usage: om usage summary|sync');
+}

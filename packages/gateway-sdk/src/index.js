@@ -1,5 +1,6 @@
-const supportedApiVersion = 1;
-const allowedCapabilities = new Set(['resolve', 'download', 'native-pull', 'chat', 'catalog', 'auth']);
+const supportedApiVersions = new Set([1, 2]);
+const supportedApiVersion = 2;
+const allowedCapabilities = new Set(['resolve', 'download', 'native-pull', 'chat', 'catalog', 'auth', 'infer', 'stream', 'count-tokens', 'usage', 'pricing']);
 
 export class GatewayContractError extends Error {
   constructor(message, details = {}) {
@@ -47,8 +48,8 @@ export function validateGateway(gateway) {
     throw new GatewayContractError('Gateway id must contain only lowercase letters, numbers, dots, underscores, and hyphens.');
   }
 
-  if (normalizedGateway.apiVersion !== supportedApiVersion) {
-    throw new GatewayContractError(`Gateway API version ${normalizedGateway.apiVersion} is not supported. Expected ${supportedApiVersion}.`);
+  if (!supportedApiVersions.has(normalizedGateway.apiVersion)) {
+    throw new GatewayContractError(`Gateway API version ${normalizedGateway.apiVersion} is not supported. Supported versions: ${[...supportedApiVersions].join(', ')}.`);
   }
 
   for (const capability of normalizedGateway.capabilities) {
@@ -61,8 +62,10 @@ export function validateGateway(gateway) {
     throw new GatewayContractError('Gateway must implement canHandle(reference).');
   }
 
-  if (typeof normalizedGateway.resolve !== 'function') {
-    throw new GatewayContractError('Gateway must implement resolve(context).');
+  const supportsResolution = typeof normalizedGateway.resolve === 'function';
+  const supportsInference = typeof normalizedGateway.infer === 'function' || typeof normalizedGateway.inferStream === 'function';
+  if (!supportsResolution && !supportsInference) {
+    throw new GatewayContractError('Gateway must implement resolve(context), infer(context), or inferStream(context).');
   }
 
   return Object.freeze(normalizedGateway);
@@ -175,3 +178,34 @@ export function createGatewayContext(options) {
 }
 
 export const gatewayApiVersion = supportedApiVersion;
+
+
+export function normalizeInferenceUsage(usage = {}, options = {}) {
+  const inputTokens = Math.max(0, Number(usage.inputTokens ?? usage.promptTokens ?? 0));
+  const outputTokens = Math.max(0, Number(usage.outputTokens ?? usage.completionTokens ?? 0));
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: Math.max(0, Number(usage.totalTokens ?? inputTokens + outputTokens)),
+    cachedInputTokens: Math.max(0, Number(usage.cachedInputTokens ?? 0)),
+    cacheWriteTokens: Math.max(0, Number(usage.cacheWriteTokens ?? 0)),
+    reasoningTokens: Math.max(0, Number(usage.reasoningTokens ?? 0)),
+    dimensions: usage.dimensions && typeof usage.dimensions === 'object' ? usage.dimensions : {},
+    source: usage.source ?? options.source ?? 'estimated',
+    accuracy: usage.accuracy ?? options.accuracy ?? 'estimated'
+  };
+}
+
+export function createInferenceResult(input) {
+  if (!input || typeof input !== 'object') throw new GatewayContractError('Inference result must be an object.');
+  return {
+    id: requireNonEmptyString(input.id, 'inference.id'),
+    provider: requireNonEmptyString(input.provider, 'inference.provider'),
+    model: requireNonEmptyString(input.model, 'inference.model'),
+    output: input.output ?? {},
+    usage: normalizeInferenceUsage(input.usage),
+    timing: input.timing ?? {},
+    cost: input.cost ?? null,
+    raw: input.raw
+  };
+}

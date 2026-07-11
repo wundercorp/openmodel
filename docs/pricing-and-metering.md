@@ -1,0 +1,3 @@
+# Pricing and metering integration
+
+OpenModel measures usage locally and Wundership owns provider pricing, free-tier accounting, and future billing. Configure `OPENMODEL_PRICING_API_URL` and authenticate with `om login`. Use `om pricing`, `om usage summary`, and `om usage sync`. Pricing feeds use a provider-neutral HTTPS JSON format. Automatic discovery is only as complete as configured machine-readable feeds; provider announcements that have no stable feed require a feed adapter or manual verification. MPP is intentionally not used for monthly quota accounting because MPP is a per-request payment protocol.
