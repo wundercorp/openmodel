@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button, Card } from "./ui";
 import {
   estimateWundershipCloudCost,
@@ -234,41 +234,38 @@ function FilterableSelect({
   loading = false,
   onChange,
 }: FilterableSelectProps) {
-  const [filter, setFilter] = useState("");
-  const visibleOptions = useMemo(() => {
-    const normalizedFilter = filter.trim().toLowerCase();
-    const filteredOptions = normalizedFilter
-      ? options.filter((option) => option.toLowerCase().includes(normalizedFilter))
-      : options;
-    const selectedOptionExists = options.includes(value);
-    return uniqueSorted(selectedOptionExists && value && !filteredOptions.includes(value)
-      ? [value, ...filteredOptions]
-      : filteredOptions);
-  }, [filter, options, value]);
+  const generatedListId = useId();
+  const optionListId = `openmodel-pricing-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${generatedListId.replace(/[^a-z0-9]+/gi, "")}`;
+  const visibleOptions = useMemo(
+    () => uniqueSorted(value ? [value, ...options] : options),
+    [options, value],
+  );
 
   return (
     <label className="dashboard-pricing-filterable-select">
       <span>{label}</span>
       <input
-        type="search"
-        value={filter}
-        onChange={(event) => setFilter(event.target.value)}
-        placeholder={`FILTER ${label}`}
-        aria-label={`Filter ${label.toLowerCase()} options`}
-        disabled={disabled}
-      />
-      <select
+        type="text"
+        list={optionListId}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        disabled={disabled || visibleOptions.length === 0}
-      >
-        {visibleOptions.length === 0 ? (
-          <option value="">{loading ? "LOADING" : "NO OPTIONS"}</option>
-        ) : null}
+        placeholder={loading ? "LOADING CATALOG" : `SELECT OR TYPE ${label}`}
+        autoComplete="off"
+        aria-label={`${label.toLowerCase()} pricing profile`}
+        disabled={disabled}
+      />
+      <datalist id={optionListId}>
         {visibleOptions.map((option) => (
-          <option value={option} key={option}>{option}</option>
+          <option value={option} key={option} />
         ))}
-      </select>
+      </datalist>
+      <small>
+        {loading
+          ? "LOADING REMOTE CATALOG"
+          : options.length > 0
+            ? `${formatInteger(options.length)} CATALOG OPTION${options.length === 1 ? "" : "S"}`
+            : "NO REMOTE OPTIONS · TYPE A VALUE"}
+      </small>
     </label>
   );
 }
@@ -570,9 +567,6 @@ export function UsagePricingDashboard({
       serviceTier: serviceTier.trim() || "default",
     };
     try {
-      if (!selectedCatalogEntry) {
-        throw new Error("Select an active provider, model, region, and service tier from the pricing catalog.");
-      }
       const [summaryResult, currentResult] = await Promise.all([
         getWundershipUsageSummary(abortController.signal),
         estimateWundershipCloudCost(
@@ -591,12 +585,16 @@ export function UsagePricingDashboard({
       ]);
       setSummary(summaryResult);
       setEstimate(currentResult);
-      setRates({
-        inputPerMillion: finiteNumber(selectedCatalogEntry.inputPerMillion),
-        outputPerMillion: finiteNumber(selectedCatalogEntry.outputPerMillion),
-        currency: selectedCatalogEntry.currency,
-        pricingVersion: selectedCatalogEntry.pricingVersion,
-      });
+      if (selectedCatalogEntry) {
+        setRates({
+          inputPerMillion: finiteNumber(selectedCatalogEntry.inputPerMillion),
+          outputPerMillion: finiteNumber(selectedCatalogEntry.outputPerMillion),
+          currency: selectedCatalogEntry.currency,
+          pricingVersion: selectedCatalogEntry.pricingVersion,
+        });
+      } else {
+        setRates(undefined);
+      }
     } catch (error) {
       if (!abortController.signal.aborted) {
         setErrorMessage(
@@ -751,7 +749,7 @@ export function UsagePricingDashboard({
             {loadingSummary ? "REFRESHING" : "REFRESH ALLOWANCE"}
           </Button>
           <Button
-            disabled={calculating || (authenticated && !selectedCatalogEntry)}
+            disabled={calculating}
             onClick={() => void calculatePricing()}
           >
             {calculating ? "CALCULATING" : "CALCULATE PRICING"}
@@ -827,7 +825,7 @@ export function UsagePricingDashboard({
             label="MODEL"
             value={model}
             options={modelOptions}
-            disabled={!authenticated || loadingCatalog || providerOptions.length === 0}
+            disabled={!authenticated || loadingCatalog}
             loading={loadingCatalog}
             onChange={setModel}
           />
@@ -835,7 +833,7 @@ export function UsagePricingDashboard({
             label="REGION"
             value={region}
             options={regionOptions}
-            disabled={!authenticated || loadingCatalog || modelOptions.length === 0}
+            disabled={!authenticated || loadingCatalog}
             loading={loadingCatalog}
             onChange={setRegion}
           />
@@ -843,13 +841,15 @@ export function UsagePricingDashboard({
             label="SERVICE TIER"
             value={serviceTier}
             options={serviceTierOptions}
-            disabled={!authenticated || loadingCatalog || regionOptions.length === 0}
+            disabled={!authenticated || loadingCatalog}
             loading={loadingCatalog}
             onChange={setServiceTier}
           />
         </div>
         <p className="dashboard-pricing-config-note">
-          Select from {formatInteger(providerOptions.length)} providers and {formatInteger(catalogEntries.length)} active pricing profiles.
+          {catalogEntries.length > 0
+            ? `Select from ${formatInteger(providerOptions.length)} providers and ${formatInteger(catalogEntries.length)} active pricing profiles. `
+            : "The remote catalog returned no active pricing profiles. Provider, model, region, and service tier remain editable so pricing estimates can still be requested directly. "}
           The selected profile is the cloud comparison and synchronization target for this browser session.
           Local model files and prompt/response content are never included in usage events.
           The allowance is cost weighted: expensive models consume allowance units faster, while cheaper models receive more room for experimentation.

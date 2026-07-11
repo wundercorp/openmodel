@@ -2914,42 +2914,7 @@ ${dokuGenerateCommand}`,
           ) : null}
 
           {activeRoute === "metrics" ? (
-            <section className="dashboard-section dashboard-page-view dashboard-metrics-page">
-              <div className="dashboard-section-header">
-                <div>
-                  <span className="dashboard-section-index">04</span>
-                  <Badge>LOCAL OBSERVABILITY</Badge>
-                  <h2>TOKENS AND INFERENCE</h2>
-                  <p>
-                    Track local request volume, estimated token usage, latency,
-                    throughput, model activity, and browser-to-cloud control-plane health.
-                  </p>
-                </div>
-                {activeMetricsTab === "overview" || activeMetricsTab === "performance" ? (
-                  <div className="dashboard-page-actions">
-                    <Button
-                      variant="outline"
-                      disabled={!localApiConnected || localMetricsLoading}
-                      onClick={() => void loadLocalMetricsSnapshot(true)}
-                    >
-                      {localMetricsLoading ? "SYNCING" : "REFRESH METRICS"}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      disabled={
-                        !localApiConnected ||
-                        !localMetrics ||
-                        localMetricsResetting ||
-                        (localInferenceMetrics?.activeRequests ?? 0) > 0
-                      }
-                      onClick={() => void clearLocalMetrics()}
-                    >
-                      {localMetricsResetting ? "RESETTING" : "RESET LOCAL"}
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-
+            <>
               <div className="dashboard-metrics-tabs" role="tablist" aria-label="Metrics sections">
                 <button
                   type="button"
@@ -2999,6 +2964,42 @@ ${dokuGenerateCommand}`,
                   <strong>CLOUD &amp; SYNC</strong>
                   <small>Session health</small>
                 </button>
+              </div>
+
+              <section className="dashboard-section dashboard-page-view dashboard-metrics-page">
+              <div className="dashboard-section-header">
+                <div>
+                  <span className="dashboard-section-index">04</span>
+                  <Badge>LOCAL OBSERVABILITY</Badge>
+                  <h2>TOKENS AND INFERENCE</h2>
+                  <p>
+                    Track local request volume, estimated token usage, latency,
+                    throughput, model activity, and browser-to-cloud control-plane health.
+                  </p>
+                </div>
+                {activeMetricsTab === "overview" || activeMetricsTab === "performance" ? (
+                  <div className="dashboard-page-actions">
+                    <Button
+                      variant="outline"
+                      disabled={!localApiConnected || localMetricsLoading}
+                      onClick={() => void loadLocalMetricsSnapshot(true)}
+                    >
+                      {localMetricsLoading ? "SYNCING" : "REFRESH METRICS"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={
+                        !localApiConnected ||
+                        !localMetrics ||
+                        localMetricsResetting ||
+                        (localInferenceMetrics?.activeRequests ?? 0) > 0
+                      }
+                      onClick={() => void clearLocalMetrics()}
+                    >
+                      {localMetricsResetting ? "RESETTING" : "RESET LOCAL"}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
 
               {activeMetricsTab === "overview" ? (
@@ -3173,7 +3174,10 @@ ${dokuGenerateCommand}`,
                           throughput, request history, and per-model activity.
                         </p>
                       </div>
-                      <Button onClick={() => navigateMetricsTab("overview")}>
+                      <Button
+                        className="dashboard-metrics-connect-action"
+                        onClick={() => navigateMetricsTab("overview")}
+                      >
                         OPEN OVERVIEW
                       </Button>
                     </Card>
@@ -3468,7 +3472,8 @@ ${dokuGenerateCommand}`,
               </div>
                 </div>
               ) : null}
-            </section>
+              </section>
+            </>
           ) : null}
 
           {activeRoute === "gateways" ? (

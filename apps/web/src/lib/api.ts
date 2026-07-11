@@ -338,13 +338,53 @@ export function getWundershipApiBaseUrl() {
   return wundershipApiBaseUrl;
 }
 
+function normalizeWundershipPricingCatalog(payload: unknown): WundershipPricingCatalogResponse {
+  const payloadRecord = payload && typeof payload === "object"
+    ? payload as Record<string, unknown>
+    : {};
+  const nestedData = payloadRecord.data && typeof payloadRecord.data === "object"
+    ? payloadRecord.data as Record<string, unknown>
+    : {};
+  const rawEntries = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payloadRecord.entries)
+      ? payloadRecord.entries
+      : Array.isArray(payloadRecord.prices)
+        ? payloadRecord.prices
+        : Array.isArray(nestedData.entries)
+          ? nestedData.entries
+          : Array.isArray(nestedData.prices)
+            ? nestedData.prices
+            : [];
+
+  const entries = rawEntries.filter((entry): entry is WundershipPricingCatalogEntry => {
+    if (!entry || typeof entry !== "object") {
+      return false;
+    }
+    const entryRecord = entry as Record<string, unknown>;
+    return typeof entryRecord.provider === "string"
+      && entryRecord.provider.trim().length > 0
+      && typeof entryRecord.model === "string"
+      && entryRecord.model.trim().length > 0;
+  });
+
+  const generatedAtCandidate = payloadRecord.generatedAt ?? nestedData.generatedAt;
+  return {
+    generatedAt: typeof generatedAtCandidate === "string"
+      ? generatedAtCandidate
+      : new Date().toISOString(),
+    entries,
+  };
+}
+
 export async function getWundershipPricingCatalog(signal?: AbortSignal) {
   const response = await authenticatedFetch(`${wundershipApiBaseUrl}/pricing/catalog`, {
     headers: { accept: "application/json" },
     cache: "no-store",
     signal,
   });
-  return readJsonResponse<WundershipPricingCatalogResponse>(response);
+  const payload = await readJsonResponse<unknown>(response);
+  return normalizeWundershipPricingCatalog(payload);
 }
 
 export async function getWundershipUsageSummary(signal?: AbortSignal) {
