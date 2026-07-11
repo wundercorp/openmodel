@@ -27,6 +27,15 @@ It gives you one command, `om`, for working with GGUF artifacts, existing Ollama
 
 OpenModel does not bundle model weights or native inference engines.
 
+On macOS, install the GGUF runtime with:
+
+```bash
+brew install llama.cpp
+om doctor
+```
+
+A downloaded model can appear in `om list` before a compatible runtime is installed. The model is stored locally at that point, but chat requests will return a runtime-unavailable response until `llama-cli` or another compatible runtime is available.
+
 ## Install
 
 ```bash
@@ -161,6 +170,14 @@ curl http://127.0.0.1:11435/v1/chat/completions \
   }'
 ```
 
+Inspect local inference metrics:
+
+```bash
+curl http://127.0.0.1:11435/v1/metrics
+```
+
+Metrics are kept in memory on the local machine. Prompt and response content are not stored. Token counts are estimated when the selected runtime does not report exact usage.
+
 Generate through the Ollama-compatible endpoint:
 
 ```bash
@@ -176,6 +193,9 @@ Available endpoints:
 
 - `GET /health`
 - `GET /v1/models`
+- `GET /v1/runtime-status`
+- `GET /v1/metrics`
+- `POST /v1/metrics/reset`
 - `POST /v1/chat/completions`
 - `GET /api/tags`
 - `POST /api/generate`

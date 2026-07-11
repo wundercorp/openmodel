@@ -2,6 +2,10 @@ import { commandExists, runProcess } from '../lib/process.js';
 
 export const ollamaRuntime = {
   id: 'ollama',
+  async status() {
+    const available = await commandExists('ollama');
+    return { available, binary: available ? 'ollama' : undefined };
+  },
   async available() { return commandExists('ollama'); },
   async pull(model) { await runProcess('ollama', ['pull', model]); },
   async run(manifest, prompt) {

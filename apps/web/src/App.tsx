@@ -11,17 +11,23 @@ import {
   type AuthSession,
 } from "./lib/auth";
 import {
+  createLocalChatCompletion,
   getApiBaseUrl,
   getDashboardUser,
   getGatewayRegistry,
   getLocalModelCatalog,
   getLocalModelInstall,
   getLocalModels,
+  getLocalMetrics,
+  getLocalRuntimeStatus,
+  resetLocalMetrics,
   startLocalModelInstall,
   type DashboardUser,
   type GatewayRecord,
   type InstallableLocalModel,
+  type LocalMetricsSnapshot,
   type LocalModelRecord,
+  type LocalRuntimeStatus,
   type ModelInstallJob,
 } from "./lib/api";
 
@@ -29,22 +35,36 @@ type Theme = "dark" | "light";
 type Accent = "orange" | "green" | "blue" | "fuchsia";
 type DashboardLoadState = "idle" | "loading" | "ready" | "error";
 type LocalApiState = "idle" | "loading" | "connected" | "offline";
+type ModelTestState = "idle" | "running" | "complete" | "error";
 type DashboardRoute =
   | "overview"
   | "models"
-  | "builderstudio"
-  | "doku"
+  | "resources"
+  | "metrics"
   | "gateways"
   | "account";
+
+type DashboardResourceTab = "builderstudio" | "doku";
+
+interface CloudSessionMetrics {
+  syncAttempts: number;
+  successfulSyncs: number;
+  failedSyncs: number;
+  totalLatencyMs: number;
+  lastLatencyMs: number;
+  lastSyncedAt?: number;
+}
 
 interface DashboardCache {
   user?: DashboardUser;
   gateways: GatewayRecord[];
   updatedAt: number;
+  cloudMetrics?: CloudSessionMetrics;
 }
 
 const dashboardCacheKey = "openmodel:dashboard-cache";
 const modelInstallJobStorageKey = "openmodel:model-install-job";
+const dashboardSidebarCollapsedStorageKey = "openmodel:dashboard-sidebar-collapsed";
 
 const dashboardRouteItems: Array<{
   route: DashboardRoute;
@@ -53,17 +73,32 @@ const dashboardRouteItems: Array<{
 }> = [
   { route: "overview", index: "01", label: "OVERVIEW" },
   { route: "models", index: "02", label: "MODELS" },
-  { route: "builderstudio", index: "03", label: "USE MODELS" },
-  { route: "doku", index: "04", label: "DOKU.SH" },
+  { route: "resources", index: "03", label: "RESOURCES" },
+  { route: "metrics", index: "04", label: "METRICS" },
   { route: "gateways", index: "05", label: "GATEWAYS" },
   { route: "account", index: "06", label: "ACCOUNT" },
 ];
 
 function readDashboardRoute(): DashboardRoute {
   const route = new URLSearchParams(window.location.search).get("view");
+  if (route === "builderstudio" || route === "doku") {
+    return "resources";
+  }
   return dashboardRouteItems.some((item) => item.route === route)
     ? (route as DashboardRoute)
     : "overview";
+}
+
+function readDashboardResourceTab(): DashboardResourceTab {
+  const searchParams = new URLSearchParams(window.location.search);
+  const legacyRoute = searchParams.get("view");
+  if (legacyRoute === "doku") {
+    return "doku";
+  }
+  if (legacyRoute === "builderstudio") {
+    return "builderstudio";
+  }
+  return searchParams.get("tool") === "doku" ? "doku" : "builderstudio";
 }
 
 function readDashboardCache() {
@@ -96,6 +131,47 @@ function formatBytes(value: number | undefined) {
     return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
   }
   return `${(value / 1024 / 1024).toFixed(value >= 100 * 1024 * 1024 ? 0 : 1)} MB`;
+}
+
+
+function formatMetricNumber(value: number | undefined) {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(
+    value ?? 0,
+  );
+}
+
+function formatDuration(milliseconds: number | undefined) {
+  if (!Number.isFinite(milliseconds)) {
+    return "0 MS";
+  }
+  if ((milliseconds ?? 0) >= 1000) {
+    return `${((milliseconds ?? 0) / 1000).toFixed(2)} S`;
+  }
+  return `${Math.round(milliseconds ?? 0)} MS`;
+}
+
+function formatUptime(totalSeconds: number | undefined) {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds ?? 0));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+  if (hours > 0) {
+    return `${hours}H ${String(minutes).padStart(2, "0")}M`;
+  }
+  if (minutes > 0) {
+    return `${minutes}M ${String(seconds).padStart(2, "0")}S`;
+  }
+  return `${seconds}S`;
+}
+
+function formatPercent(value: number | undefined) {
+  if (!Number.isFinite(value)) {
+    return "0%";
+  }
+  return `${Math.max(0, Math.min(100, value ?? 0)).toFixed(1)}%`;
 }
 
 const gateways = [
@@ -132,7 +208,7 @@ export function App() {
     localStorage.getItem("openmodel:theme") === "light" ? "light" : "dark",
   );
   const [accent, setAccent] = useState<Accent>(
-    () => (localStorage.getItem("openmodel:accent") as Accent) || "orange",
+    () => (localStorage.getItem("openmodel:accent") as Accent) || "blue",
   );
   const [session, setSession] = useState<AuthSession | undefined>(() =>
     getSession(),
@@ -333,6 +409,38 @@ function SiteHeader({
   onSignIn,
   onSignOut,
 }: SiteHeaderProps) {
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const profileInitial = (sessionLabel?.trim().slice(0, 1) || "O").toUpperCase();
+
+  useEffect(() => {
+    if (!profileMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        profileMenuRef.current &&
+        !profileMenuRef.current.contains(event.target as Node)
+      ) {
+        setProfileMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setProfileMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [profileMenuOpen]);
+
   return (
     <header className="site-header">
       <a className="brand" href="/">
@@ -356,12 +464,6 @@ function SiteHeader({
       </nav>
 
       <div className="header-actions">
-        {sessionLabel ? (
-          <span className="header-session-label" title={sessionLabel}>
-            {sessionLabel}
-          </span>
-        ) : null}
-
         <select
           aria-label="Accent color"
           value={accent}
@@ -378,21 +480,49 @@ function SiteHeader({
         </Button>
 
         {session ? (
-          <>
-            <a
-              className="button button-outline header-dashboard-button"
-              href="/dashboard"
+          <div className="site-profile-menu" ref={profileMenuRef}>
+            <button
+              className="site-profile-trigger"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={profileMenuOpen}
+              onClick={() => setProfileMenuOpen((currentValue) => !currentValue)}
             >
-              DASHBOARD
-            </a>
-            <Button
-              variant="ghost"
-              disabled={authenticationBusy}
-              onClick={onSignOut}
-            >
-              {authenticationBusy ? "WAIT" : "SIGN OUT"}
-            </Button>
-          </>
+              <span className="site-profile-avatar" aria-hidden="true">
+                {profileInitial}
+              </span>
+              <span className="site-profile-label">
+                {sessionLabel ?? "ACCOUNT"}
+              </span>
+              <span aria-hidden="true">{profileMenuOpen ? "▲" : "▼"}</span>
+            </button>
+
+            {profileMenuOpen ? (
+              <div className="site-profile-dropdown" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setProfileMenuOpen(false);
+                    window.location.assign("/dashboard?view=account");
+                  }}
+                >
+                  ACCOUNT PROFILE
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={authenticationBusy}
+                  onClick={() => {
+                    setProfileMenuOpen(false);
+                    onSignOut();
+                  }}
+                >
+                  {authenticationBusy ? "WAIT" : "LOGOUT"}
+                </button>
+              </div>
+            ) : null}
+          </div>
         ) : (
           <Button disabled={authenticationBusy} onClick={onSignIn}>
             {authenticationBusy ? "CONNECTING" : "SIGN IN"}
@@ -428,13 +558,9 @@ function LandingPage() {
 
             <Button
               variant="outline"
-              onClick={() =>
-                document
-                  .getElementById("gateways")
-                  ?.scrollIntoView({ behavior: "smooth" })
-              }
+              onClick={() => window.location.assign("/dashboard")}
             >
-              EXPLORE GATEWAYS
+              TRACK INFERENCE
             </Button>
           </div>
 
@@ -588,10 +714,26 @@ function DashboardPage({
   const [activeRoute, setActiveRoute] = useState<DashboardRoute>(() =>
     readDashboardRoute(),
   );
+  const [activeResourceTab, setActiveResourceTab] =
+    useState<DashboardResourceTab>(() => readDashboardResourceTab());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem(dashboardSidebarCollapsedStorageKey) === "true",
+  );
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [loadState, setLoadState] = useState<DashboardLoadState>(() =>
     initialDashboardCache ? "ready" : "idle",
   );
   const [cloudRefreshing, setCloudRefreshing] = useState(false);
+  const [cloudMetrics, setCloudMetrics] = useState<CloudSessionMetrics>(() =>
+    initialDashboardCache?.cloudMetrics ?? {
+      syncAttempts: 0,
+      successfulSyncs: 0,
+      failedSyncs: 0,
+      totalLatencyMs: 0,
+      lastLatencyMs: 0,
+      lastSyncedAt: initialDashboardCache?.updatedAt,
+    },
+  );
   const [lastCloudSyncAt, setLastCloudSyncAt] = useState<number | undefined>(
     initialDashboardCache?.updatedAt,
   );
@@ -612,20 +754,43 @@ function DashboardPage({
   const [localApiError, setLocalApiError] = useState<string>();
   const [localModels, setLocalModels] = useState<LocalModelRecord[]>([]);
   const [localModelCatalog, setLocalModelCatalog] = useState<InstallableLocalModel[]>([]);
+  const [localRuntimeStatus, setLocalRuntimeStatus] = useState<LocalRuntimeStatus>();
+  const [localRuntimeError, setLocalRuntimeError] = useState<string>();
+  const [localMetrics, setLocalMetrics] = useState<LocalMetricsSnapshot>();
+  const [localMetricsLoading, setLocalMetricsLoading] = useState(false);
+  const [localMetricsError, setLocalMetricsError] = useState<string>();
+  const [localMetricsResetting, setLocalMetricsResetting] = useState(false);
   const [modelInstallJob, setModelInstallJob] = useState<ModelInstallJob>();
   const [modelInstallError, setModelInstallError] = useState<string>();
   const [selectedModelId, setSelectedModelId] = useState<string>();
+  const [modelTestState, setModelTestState] = useState<ModelTestState>("idle");
+  const [modelTestOutput, setModelTestOutput] = useState<string>();
+  const [modelTestError, setModelTestError] = useState<string>();
   const [copiedCommand, setCopiedCommand] = useState<string>();
   const dashboardRequestId = useRef(0);
   const localApiRequestId = useRef(0);
   const dashboardAbortController = useRef<AbortController | undefined>(undefined);
   const localApiAbortController = useRef<AbortController | undefined>(undefined);
   const modelInstallAbortController = useRef<AbortController | undefined>(undefined);
+  const modelTestAbortController = useRef<AbortController | undefined>(undefined);
+  const localMetricsAbortController = useRef<AbortController | undefined>(undefined);
+  const localMetricsRequestId = useRef(0);
   const initialCloudLoadStarted = useRef(false);
+  const dashboardProfileMenuRef = useRef<HTMLDivElement | null>(null);
   const dashboardData = useRef({
     user: initialDashboardCache?.user,
     gateways: initialDashboardCache?.gateways ?? [],
   });
+  const cloudMetricsData = useRef<CloudSessionMetrics>(
+    initialDashboardCache?.cloudMetrics ?? {
+      syncAttempts: 0,
+      successfulSyncs: 0,
+      failedSyncs: 0,
+      totalLatencyMs: 0,
+      lastLatencyMs: 0,
+      lastSyncedAt: initialDashboardCache?.updatedAt,
+    },
+  );
   const localUser = useMemo(() => getSessionUser(session), [session]);
   const sessionAccessToken = session?.access_token;
 
@@ -634,6 +799,23 @@ function DashboardPage({
       route === "overview" ? "/dashboard" : `/dashboard?view=${route}`;
     window.history.pushState({ dashboardRoute: route }, "", nextUrl);
     setActiveRoute(route);
+    if (route === "resources") {
+      setActiveResourceTab("builderstudio");
+    }
+    setProfileMenuOpen(false);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
+  const navigateResourceTab = useCallback((tab: DashboardResourceTab) => {
+    const nextUrl = `/dashboard?view=resources&tool=${tab}`;
+    window.history.pushState(
+      { dashboardRoute: "resources", dashboardResourceTab: tab },
+      "",
+      nextUrl,
+    );
+    setActiveRoute("resources");
+    setActiveResourceTab(tab);
+    setProfileMenuOpen(false);
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
 
@@ -644,12 +826,48 @@ function DashboardPage({
   useEffect(() => {
     const handlePopState = () => {
       setActiveRoute(readDashboardRoute());
+      setActiveResourceTab(readDashboardResourceTab());
       window.scrollTo({ top: 0, behavior: "auto" });
     };
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      dashboardSidebarCollapsedStorageKey,
+      String(sidebarCollapsed),
+    );
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (!profileMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        dashboardProfileMenuRef.current &&
+        !dashboardProfileMenuRef.current.contains(event.target as Node)
+      ) {
+        setProfileMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setProfileMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [profileMenuOpen]);
 
   const loadDashboard = useCallback(async () => {
     if (!sessionAccessToken) {
@@ -672,6 +890,7 @@ function DashboardPage({
       setLoadState("loading");
     }
 
+    const cloudSyncStartedAt = performance.now();
     const [userResult, gatewayResult] = await Promise.allSettled([
       getDashboardUser(abortController.signal),
       getGatewayRegistry(abortController.signal),
@@ -702,17 +921,13 @@ function DashboardPage({
       setGatewayRecords(gatewayResult.value);
     }
 
-    if (
-      userResult.status === "fulfilled" ||
-      gatewayResult.status === "fulfilled"
-    ) {
-      const updatedAt = Date.now();
+    const cloudDataUpdated =
+      userResult.status === "fulfilled" || gatewayResult.status === "fulfilled";
+    const updatedAt = cloudDataUpdated
+      ? Date.now()
+      : cloudMetricsData.current.lastSyncedAt ?? Date.now();
+    if (cloudDataUpdated) {
       setLastCloudSyncAt(updatedAt);
-      writeDashboardCache({
-        user: nextUser,
-        gateways: nextGateways,
-        updatedAt,
-      });
     }
 
     const errors: string[] = [];
@@ -729,6 +944,34 @@ function DashboardPage({
           ? gatewayResult.reason.message
           : "Unable to load the gateway registry.",
       );
+    }
+
+    const cloudSyncLatencyMs = Math.max(
+      0,
+      Math.round(performance.now() - cloudSyncStartedAt),
+    );
+    const previousCloudMetrics = cloudMetricsData.current;
+    const nextCloudMetrics: CloudSessionMetrics = {
+      syncAttempts: previousCloudMetrics.syncAttempts + 1,
+      successfulSyncs:
+        previousCloudMetrics.successfulSyncs + (errors.length === 0 ? 1 : 0),
+      failedSyncs:
+        previousCloudMetrics.failedSyncs + (errors.length > 0 ? 1 : 0),
+      totalLatencyMs:
+        previousCloudMetrics.totalLatencyMs + cloudSyncLatencyMs,
+      lastLatencyMs: cloudSyncLatencyMs,
+      lastSyncedAt:
+        errors.length === 0 ? Date.now() : previousCloudMetrics.lastSyncedAt,
+    };
+    cloudMetricsData.current = nextCloudMetrics;
+    setCloudMetrics(nextCloudMetrics);
+    if (cloudDataUpdated || hasExistingData) {
+      writeDashboardCache({
+        user: nextUser,
+        gateways: nextGateways,
+        updatedAt,
+        cloudMetrics: nextCloudMetrics,
+      });
     }
 
     onSessionChange();
@@ -769,10 +1012,13 @@ function DashboardPage({
     setLocalApiError(undefined);
 
     try {
-      const [modelsResult, catalogResult] = await Promise.allSettled([
-        getLocalModels(normalizedUrl, abortController.signal),
-        getLocalModelCatalog(normalizedUrl, abortController.signal),
-      ]);
+      const [modelsResult, catalogResult, runtimeResult, metricsResult] =
+        await Promise.allSettled([
+          getLocalModels(normalizedUrl, abortController.signal),
+          getLocalModelCatalog(normalizedUrl, abortController.signal),
+          getLocalRuntimeStatus(normalizedUrl, abortController.signal),
+          getLocalMetrics(normalizedUrl, abortController.signal),
+        ]);
 
       if (requestId !== localApiRequestId.current) {
         return false;
@@ -791,6 +1037,26 @@ function DashboardPage({
         setLocalModelCatalog([]);
         setModelInstallError(
           "One-click model installs require the latest OpenModel CLI. Run npm install -g @wundercorp/openmodel@latest, restart om serve, and reconnect.",
+        );
+      }
+
+      if (runtimeResult.status === "fulfilled") {
+        setLocalRuntimeStatus(runtimeResult.value);
+        setLocalRuntimeError(undefined);
+      } else {
+        setLocalRuntimeStatus(undefined);
+        setLocalRuntimeError(
+          "Runtime detection requires the latest OpenModel CLI. Update the CLI, restart om serve, and reconnect.",
+        );
+      }
+
+      if (metricsResult.status === "fulfilled") {
+        setLocalMetrics(metricsResult.value);
+        setLocalMetricsError(undefined);
+      } else {
+        setLocalMetrics(undefined);
+        setLocalMetricsError(
+          "Local metrics require the latest OpenModel CLI. Update the CLI, restart om serve, and reconnect.",
         );
       }
 
@@ -817,6 +1083,10 @@ function DashboardPage({
       }
       setLocalModels([]);
       setLocalModelCatalog([]);
+      setLocalRuntimeStatus(undefined);
+      setLocalRuntimeError(undefined);
+      setLocalMetrics(undefined);
+      setLocalMetricsError(undefined);
       setLocalApiState("offline");
       setLocalApiError(
         requestTimedOut
@@ -832,32 +1102,137 @@ function DashboardPage({
   }, []);
 
   const refreshLocalModelsSilently = useCallback(async (requestedUrl: string) => {
-    try {
-      const [models, catalog] = await Promise.all([
+    const [modelsResult, catalogResult, runtimeResult, metricsResult] =
+      await Promise.allSettled([
         getLocalModels(requestedUrl),
         getLocalModelCatalog(requestedUrl),
+        getLocalRuntimeStatus(requestedUrl),
+        getLocalMetrics(requestedUrl),
       ]);
-      setLocalModels(models);
-      setLocalModelCatalog(catalog);
-      setLocalApiState("connected");
-      setLocalApiError(undefined);
-      return true;
-    } catch {
+
+    if (modelsResult.status === "rejected") {
       return false;
     }
+
+    setLocalModels(modelsResult.value);
+    if (catalogResult.status === "fulfilled") {
+      setLocalModelCatalog(catalogResult.value);
+    }
+    if (runtimeResult.status === "fulfilled") {
+      setLocalRuntimeStatus(runtimeResult.value);
+      setLocalRuntimeError(undefined);
+    }
+    if (metricsResult.status === "fulfilled") {
+      setLocalMetrics(metricsResult.value);
+      setLocalMetricsError(undefined);
+    }
+    setLocalApiState("connected");
+    setLocalApiError(undefined);
+    return true;
   }, []);
+
+  const loadLocalMetricsSnapshot = useCallback(
+    async (showLoadingState = false) => {
+      if (localApiState !== "connected") {
+        return false;
+      }
+
+      localMetricsAbortController.current?.abort();
+      const abortController = new AbortController();
+      localMetricsAbortController.current = abortController;
+      const requestId = localMetricsRequestId.current + 1;
+      localMetricsRequestId.current = requestId;
+
+      if (showLoadingState) {
+        setLocalMetricsLoading(true);
+      }
+
+      try {
+        const metrics = await getLocalMetrics(localApiUrl, abortController.signal);
+        if (
+          abortController.signal.aborted ||
+          requestId !== localMetricsRequestId.current
+        ) {
+          return false;
+        }
+        setLocalMetrics(metrics);
+        setLocalMetricsError(undefined);
+        return true;
+      } catch (error) {
+        if (
+          abortController.signal.aborted ||
+          requestId !== localMetricsRequestId.current
+        ) {
+          return false;
+        }
+        setLocalMetricsError(
+          error instanceof Error
+            ? error.message
+            : "The dashboard could not load local inference metrics.",
+        );
+        return false;
+      } finally {
+        if (requestId === localMetricsRequestId.current) {
+          setLocalMetricsLoading(false);
+        }
+      }
+    },
+    [localApiState, localApiUrl],
+  );
+
+  const clearLocalMetrics = useCallback(async () => {
+    if (localApiState !== "connected") {
+      return;
+    }
+
+    localMetricsAbortController.current?.abort();
+    const abortController = new AbortController();
+    localMetricsAbortController.current = abortController;
+    setLocalMetricsResetting(true);
+    setLocalMetricsError(undefined);
+
+    try {
+      await resetLocalMetrics(localApiUrl, abortController.signal);
+      if (localMetricsAbortController.current === abortController) {
+        localMetricsAbortController.current = undefined;
+      }
+      await loadLocalMetricsSnapshot(false);
+    } catch (error) {
+      if (!abortController.signal.aborted) {
+        setLocalMetricsError(
+          error instanceof Error
+            ? error.message
+            : "The local metrics could not be reset.",
+        );
+      }
+    } finally {
+      setLocalMetricsResetting(false);
+    }
+  }, [loadLocalMetricsSnapshot, localApiState, localApiUrl]);
 
   const disconnectLocalApi = useCallback(() => {
     localApiAbortController.current?.abort();
     modelInstallAbortController.current?.abort();
+    modelTestAbortController.current?.abort();
+    localMetricsAbortController.current?.abort();
     localApiRequestId.current += 1;
+    localMetricsRequestId.current += 1;
     setLocalApiState("idle");
     setLocalApiError(undefined);
     setLocalModels([]);
     setLocalModelCatalog([]);
+    setLocalRuntimeStatus(undefined);
+    setLocalRuntimeError(undefined);
+    setLocalMetrics(undefined);
+    setLocalMetricsError(undefined);
+    setLocalMetricsLoading(false);
+    setLocalMetricsResetting(false);
     setModelInstallJob(undefined);
     setModelInstallError(undefined);
     setSelectedModelId(undefined);
+    setModelTestState("idle");
+    setModelTestOutput(undefined);
+    setModelTestError(undefined);
   }, []);
 
   const installCatalogModel = useCallback(
@@ -988,12 +1363,40 @@ function DashboardPage({
   }, [loadDashboard, sessionAccessToken]);
 
   useEffect(() => {
+    if (activeRoute !== "metrics" || localApiState !== "connected") {
+      return;
+    }
+
+    let active = true;
+    let intervalId: number | undefined;
+    void loadLocalMetricsSnapshot(true).then((loaded) => {
+      if (!active || !loaded) {
+        return;
+      }
+      intervalId = window.setInterval(() => {
+        void loadLocalMetricsSnapshot(false);
+      }, 2500);
+    });
+
+    return () => {
+      active = false;
+      if (intervalId !== undefined) {
+        window.clearInterval(intervalId);
+      }
+      localMetricsAbortController.current?.abort();
+    };
+  }, [activeRoute, loadLocalMetricsSnapshot, localApiState]);
+
+  useEffect(() => {
     return () => {
       dashboardRequestId.current += 1;
       localApiRequestId.current += 1;
+      localMetricsRequestId.current += 1;
       dashboardAbortController.current?.abort();
       localApiAbortController.current?.abort();
       modelInstallAbortController.current?.abort();
+      modelTestAbortController.current?.abort();
+      localMetricsAbortController.current?.abort();
     };
   }, []);
 
@@ -1007,6 +1410,49 @@ function DashboardPage({
       setSelectedModelId(localModels[0].id);
     }
   }, [localModels, selectedModelId]);
+
+  const runModelTest = useCallback(
+    async (modelId: string) => {
+      modelTestAbortController.current?.abort();
+      const abortController = new AbortController();
+      modelTestAbortController.current = abortController;
+      setModelTestState("running");
+      setModelTestOutput(undefined);
+      setModelTestError(undefined);
+
+      try {
+        const completion = await createLocalChatCompletion(
+          localApiUrl,
+          modelId,
+          "Reply with exactly: OpenModel is ready",
+          abortController.signal,
+        );
+        const output = completion.choices[0]?.message?.content?.trim();
+        setModelTestOutput(output || "The model returned an empty response.");
+        setModelTestState("complete");
+        await refreshLocalModelsSilently(localApiUrl);
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          return;
+        }
+        setModelTestError(
+          error instanceof Error
+            ? error.message
+            : "The local inference test failed.",
+        );
+        setModelTestState("error");
+        await refreshLocalModelsSilently(localApiUrl);
+      }
+    },
+    [localApiUrl, refreshLocalModelsSilently],
+  );
+
+  useEffect(() => {
+    modelTestAbortController.current?.abort();
+    setModelTestState("idle");
+    setModelTestOutput(undefined);
+    setModelTestError(undefined);
+  }, [selectedModelId]);
 
   const copyCommand = useCallback(async (commandId: string, value: string) => {
     await navigator.clipboard.writeText(value);
@@ -1078,6 +1524,20 @@ function DashboardPage({
   const selectedModel = localModels.find(
     (model) => model.id === selectedModelId,
   );
+  const selectedModelRuntime = localRuntimeStatus?.models.find(
+    (model) => model.id === selectedModel?.id,
+  );
+  const selectedModelRunnable = Boolean(selectedModelRuntime?.runnable);
+  const preferredRuntimeId =
+    selectedModelRuntime?.requiredRuntimeIds[0] ?? "llama.cpp";
+  const preferredRuntime = localRuntimeStatus?.runtimes.find(
+    (runtime) => runtime.id === preferredRuntimeId,
+  );
+  const runtimeInstallCommand =
+    preferredRuntime?.installCommand ??
+    (localRuntimeStatus?.platform === "win32"
+      ? "winget install llama.cpp"
+      : "brew install llama.cpp");
   const starterModel = localModelCatalog[0];
   const displayedStarterModel = starterModel ?? starterModelFallback;
   const starterInstalledModelId =
@@ -1105,12 +1565,17 @@ function DashboardPage({
       .join("") || "OM";
   const installCommand = "npm install -g @wundercorp/openmodel";
   const pullCommand = "om pull hf://owner/repo/model.gguf --alias local";
-  const serveCommand = `om serve ${selectedModel?.id ?? "local"} --port 11435`;
+  const serveCommand = "om serve --port 11435";
+  const runtimeVerifyCommand = "om doctor";
   const requestCommand = `curl ${localApiUrl}/v1/chat/completions \\
   -H 'content-type: application/json' \\
   -d '{"model":"${selectedModel?.id ?? "local"}","messages":[{"role":"user","content":"Hello"}]}'`;
   const activeLocalModelId =
     selectedModel?.id ?? localModels[0]?.id ?? modelInstallJob?.modelId;
+  const activeLocalModelRuntime = localRuntimeStatus?.models.find(
+    (model) => model.id === activeLocalModelId,
+  );
+  const activeLocalModelRunnable = Boolean(activeLocalModelRuntime?.runnable);
   const builderStudioProfileId = "openmodel-local";
   const builderStudioModelId = activeLocalModelId ?? "YOUR_MODEL_ID";
   const builderStudioBaseUrl = `${localApiUrl}/v1`;
@@ -1166,41 +1631,84 @@ function DashboardPage({
     : loadState === "loading"
       ? "CONNECTING"
       : "OFFLINE";
+  const runnableModelCount =
+    localRuntimeStatus?.models.filter((model) => model.runnable).length ?? 0;
+  const localRuntimeRequired =
+    localApiConnected && localModels.length > 0 && runnableModelCount === 0;
   const localStatusLabel =
     localApiState === "loading"
       ? "CONNECTING"
       : localApiConnected
-        ? "CONNECTED"
+        ? localRuntimeRequired
+          ? "RUNTIME REQUIRED"
+          : "CONNECTED"
         : localApiState === "offline"
           ? "OFFLINE"
           : "NOT CONNECTED";
   const activeRouteLabel = activeRoute.toUpperCase();
+  const localInferenceMetrics = localMetrics?.inference;
+  const localTotalTokens = localInferenceMetrics?.totalTokens ?? 0;
+  const localPromptTokenShare =
+    localTotalTokens > 0
+      ? ((localInferenceMetrics?.promptTokens ?? 0) / localTotalTokens) * 100
+      : 0;
+  const localCompletionTokenShare =
+    localTotalTokens > 0
+      ? ((localInferenceMetrics?.completionTokens ?? 0) / localTotalTokens) * 100
+      : 0;
+  const localInferenceSuccessRate =
+    (localInferenceMetrics?.totalRequests ?? 0) > 0
+      ? ((localInferenceMetrics?.successfulRequests ?? 0) /
+          (localInferenceMetrics?.totalRequests ?? 1)) *
+        100
+      : 0;
+  const cloudAverageLatencyMs =
+    cloudMetrics.syncAttempts > 0
+      ? cloudMetrics.totalLatencyMs / cloudMetrics.syncAttempts
+      : 0;
+  const cloudSyncSuccessRate =
+    cloudMetrics.syncAttempts > 0
+      ? (cloudMetrics.successfulSyncs / cloudMetrics.syncAttempts) * 100
+      : 0;
+  const sessionRemainingSeconds = Math.max(
+    0,
+    Math.floor((session.expiresAt - Date.now()) / 1000),
+  );
 
   return (
-    <main className="dashboard-app-shell">
-      <aside className="dashboard-sidebar">
-        <button
-          className="dashboard-sidebar-brand"
-          type="button"
-          onClick={navigateHome}
-        >
-          <span className="dashboard-sidebar-brand-mark" aria-hidden="true">
-            &gt;_
-          </span>
-          <span>
-            <strong>OPENMODEL</strong>
-            <small>CONTROL PLANE</small>
-          </span>
-        </button>
+    <main
+      className={`dashboard-app-shell${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`}
+    >
+      <aside
+        className={`dashboard-sidebar${sidebarCollapsed ? " is-collapsed" : ""}`}
+      >
+        <div className="dashboard-sidebar-header">
+          <button
+            className="dashboard-sidebar-brand"
+            type="button"
+            onClick={navigateHome}
+            title="Open OpenModel.sh"
+          >
+            <span className="dashboard-sidebar-brand-mark" aria-hidden="true">
+              &gt;_
+            </span>
+            <span className="dashboard-sidebar-brand-copy">
+              <strong>OPENMODEL</strong>
+              <small>CONTROL PLANE</small>
+            </span>
+          </button>
 
-        <div className="dashboard-sidebar-user">
-          <span className="dashboard-user-avatar">{userInitials}</span>
-          <span className="dashboard-sidebar-user-copy">
-            <strong>{displayedName}</strong>
-            <small>{displayedEmail ?? "COGNITO USER"}</small>
-          </span>
-          <span className="dashboard-user-presence" title="Authenticated"></span>
+          <button
+            className="dashboard-sidebar-collapse"
+            type="button"
+            aria-label={sidebarCollapsed ? "Expand dashboard navigation" : "Collapse dashboard navigation"}
+            title={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            onClick={() => setSidebarCollapsed((currentValue) => !currentValue)}
+          >
+            <span aria-hidden="true">{sidebarCollapsed ? ">>" : "<<"}</span>
+          </button>
         </div>
+
 
         <nav className="dashboard-sidebar-nav" aria-label="Dashboard pages">
           {dashboardRouteItems.map((item) => (
@@ -1209,17 +1717,21 @@ function DashboardPage({
               className={activeRoute === item.route ? "is-active" : undefined}
               type="button"
               aria-current={activeRoute === item.route ? "page" : undefined}
+              title={sidebarCollapsed ? item.label : undefined}
               onClick={() => navigateDashboard(item.route)}
             >
-              <span>{item.index}</span>
-              {item.label}
+              <span className="dashboard-nav-index">{item.index}</span>
+              <span className="dashboard-nav-label">{item.label}</span>
             </button>
           ))}
         </nav>
 
         <div className="dashboard-sidebar-spacer"></div>
 
-        <div className="dashboard-sidebar-status">
+        <div
+          className="dashboard-sidebar-status"
+          title={`LOCAL API: ${localStatusLabel} · ${localApiUrl}`}
+        >
           <span>LOCAL API</span>
           <strong className={localApiConnected ? "is-online" : "is-offline"}>
             {localStatusLabel}
@@ -1241,9 +1753,6 @@ function DashboardPage({
           <Button variant="outline" onClick={onThemeChange}>
             {theme === "dark" ? "LIGHT MODE" : "OLED MODE"}
           </Button>
-          <Button variant="ghost" onClick={onSignOut}>
-            SIGN OUT
-          </Button>
         </div>
       </aside>
 
@@ -1255,15 +1764,50 @@ function DashboardPage({
             <strong>{activeRouteLabel}</strong>
           </div>
 
-          <div className="dashboard-browser-session">
-            <span className="dashboard-browser-session-status"></span>
-            <span>
-              <strong>{displayedName}</strong>
-              <small>BROWSER SESSION · COGNITO</small>
-            </span>
-            <span className="dashboard-user-avatar dashboard-user-avatar-small">
-              {userInitials}
-            </span>
+          <div className="dashboard-profile-menu" ref={dashboardProfileMenuRef}>
+            <button
+              className="dashboard-profile-trigger"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={profileMenuOpen}
+              onClick={() => setProfileMenuOpen((currentValue) => !currentValue)}
+            >
+              <span className="dashboard-browser-session-status"></span>
+              <span className="dashboard-profile-trigger-copy">
+                <strong>{displayedName}</strong>
+                <small>BROWSER SESSION · COGNITO</small>
+              </span>
+              <span className="dashboard-user-avatar dashboard-user-avatar-small">
+                {userInitials}
+              </span>
+              <span className="dashboard-profile-caret" aria-hidden="true">
+                {profileMenuOpen ? "▲" : "▼"}
+              </span>
+            </button>
+
+            {profileMenuOpen ? (
+              <div className="dashboard-profile-dropdown" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => navigateDashboard("account")}
+                >
+                  <span>01</span>
+                  ACCOUNT PROFILE
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setProfileMenuOpen(false);
+                    onSignOut();
+                  }}
+                >
+                  <span>02</span>
+                  LOGOUT
+                </button>
+              </div>
+            ) : null}
           </div>
         </header>
 
@@ -1339,16 +1883,20 @@ function DashboardPage({
                   <span className="dashboard-panel-kicker">NEXT ACTION</span>
                   <h3>
                     {localApiConnected
-                      ? localModels.length > 0
-                        ? "SELECT A MODEL AND SEND A REQUEST"
-                        : "INSTALL YOUR FIRST LOCAL MODEL"
-                      : "CONNECT YOUR LOCAL OPENMODEL RUNTIME"}
+                      ? localRuntimeRequired
+                        ? "INSTALL THE LOCAL INFERENCE RUNTIME"
+                        : localModels.length > 0
+                          ? "SELECT A MODEL AND SEND A REQUEST"
+                          : "INSTALL YOUR FIRST LOCAL MODEL"
+                      : "CONNECT YOUR LOCAL OPENMODEL SERVICE"}
                   </h3>
                   <p>
                     {localApiConnected
-                      ? localModels.length > 0
-                        ? "Your runtime is online. Open Models to select an installed model and copy a ready-to-run request."
-                        : "The runtime is online and ready. Open Models, then install the recommended starter model with one click."
+                      ? localRuntimeRequired
+                        ? `Your model file is installed, but ${preferredRuntimeId} is still required before chat requests can run.`
+                        : localModels.length > 0
+                          ? "The local service and model runtime are ready. Open Models to run a test or copy a request."
+                          : "The local service is online. Open Models, then install the recommended starter model with one click."
                       : "Start om serve once, then Open Models and install the recommended starter model directly from the dashboard."}
                   </p>
                   <Button onClick={() => navigateDashboard("models")}>
@@ -1366,7 +1914,7 @@ function DashboardPage({
                   </p>
                   <Button
                     variant="outline"
-                    onClick={() => navigateDashboard("builderstudio")}
+                    onClick={() => navigateResourceTab("builderstudio")}
                   >
                     OPEN MODEL WORKFLOW
                   </Button>
@@ -1379,8 +1927,23 @@ function DashboardPage({
                     Create docs.json, llms-full.txt, and a packed documentation
                     portal while your project evolves.
                   </p>
-                  <Button variant="outline" onClick={() => navigateDashboard("doku")}>
+                  <Button variant="outline" onClick={() => navigateResourceTab("doku")}>
                     OPEN DOKU WORKFLOW
+                  </Button>
+                </Card>
+
+                <Card className="dashboard-overview-action-card">
+                  <span className="dashboard-panel-kicker">OBSERVABILITY</span>
+                  <h3>TRACK TOKENS, LATENCY, AND INFERENCE</h3>
+                  <p>
+                    Review local token estimates, request success, latency,
+                    throughput, per-model activity, and cloud control-plane health.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => navigateDashboard("metrics")}
+                  >
+                    OPEN METRICS
                   </Button>
                 </Card>
 
@@ -1467,6 +2030,50 @@ function DashboardPage({
                   </p>
                 )}
               </Card>
+
+              {localRuntimeRequired ? (
+                <div className="dashboard-runtime-banner" role="status">
+                  <div>
+                    <span>MODEL FILES::READY</span>
+                    <strong>INFERENCE RUNTIME REQUIRED</strong>
+                    <p>
+                      The model is downloaded, but this computer still needs
+                      {` ${preferredRuntimeId} `}to execute it.
+                    </p>
+                  </div>
+                  <code>{runtimeInstallCommand}</code>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void copyCommand("runtime-install-banner", runtimeInstallCommand)
+                    }
+                  >
+                    {copiedCommand === "runtime-install-banner" ? "COPIED" : "COPY INSTALL COMMAND"}
+                  </button>
+                </div>
+              ) : null}
+
+              {localRuntimeError ? (
+                <div className="dashboard-runtime-banner dashboard-runtime-banner-warning" role="status">
+                  <div>
+                    <span>LOCAL CLI::UPDATE REQUIRED</span>
+                    <strong>RUNTIME DETECTION IS UNAVAILABLE</strong>
+                    <p>{localRuntimeError}</p>
+                  </div>
+                  <code>npm install -g @wundercorp/openmodel@latest</code>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void copyCommand(
+                        "runtime-cli-update",
+                        "npm install -g @wundercorp/openmodel@latest",
+                      )
+                    }
+                  >
+                    {copiedCommand === "runtime-cli-update" ? "COPIED" : "COPY UPDATE COMMAND"}
+                  </button>
+                </div>
+              ) : null}
 
               <Card className={`dashboard-model-installer ${starterModelInstalled ? "is-installed" : ""}`}>
                 <div className="dashboard-model-installer-main">
@@ -1602,7 +2209,21 @@ function DashboardPage({
                     >
                       <code>{model.id}</code>
                       <span>{model.owned_by ?? "local"}</span>
-                      <strong>✓ INSTALLED</strong>
+                      <strong
+                        className={
+                          localRuntimeStatus?.models.find(
+                            (runtimeModel) => runtimeModel.id === model.id,
+                          )?.runnable
+                            ? "is-ready"
+                            : "is-warning"
+                        }
+                      >
+                        {localRuntimeStatus?.models.find(
+                          (runtimeModel) => runtimeModel.id === model.id,
+                        )?.runnable
+                          ? "✓ READY"
+                          : "RUNTIME REQUIRED"}
+                      </strong>
                       <button
                         type="button"
                         onClick={() => setSelectedModelId(model.id)}
@@ -1629,69 +2250,232 @@ function DashboardPage({
               )}
 
               {selectedModel ? (
-                <div className="dashboard-next-step-layout">
-                  <Card className="dashboard-next-step-panel">
-                    <div className="dashboard-panel-heading">
-                      <div>
-                        <span className="dashboard-panel-kicker">NEXT: START INFERENCE</span>
-                        <h3>{selectedModel.id}</h3>
+                selectedModelRunnable ? (
+                  <div className="dashboard-next-step-layout">
+                    <Card className="dashboard-next-step-panel">
+                      <div className="dashboard-panel-heading">
+                        <div>
+                          <span className="dashboard-panel-kicker">INFERENCE::READY</span>
+                          <h3>{selectedModel.id}</h3>
+                        </div>
+                        <span className="dashboard-online-indicator">
+                          {selectedModelRuntime?.availableRuntimeId?.toUpperCase() ?? "READY"}
+                        </span>
                       </div>
-                      <span className="dashboard-online-indicator">SELECTED</span>
-                    </div>
-                    <div className="dashboard-command-list">
-                      <DashboardCommand
-                        index="01"
-                        title="SERVE THIS MODEL"
-                        command={serveCommand}
-                        copied={copiedCommand === "serve-selected"}
-                        onCopy={() =>
-                          void copyCommand("serve-selected", serveCommand)
-                        }
-                      />
-                      <DashboardCommand
-                        index="02"
-                        title="SEND A CHAT REQUEST"
-                        command={requestCommand}
-                        copied={copiedCommand === "request"}
-                        onCopy={() => void copyCommand("request", requestCommand)}
-                      />
-                    </div>
-                  </Card>
 
-                  <Card className="dashboard-context-panel">
-                    <span className="dashboard-panel-kicker">CONNECTION DETAILS</span>
-                    <h3>USE IT FROM EXISTING TOOLS</h3>
-                    <p>
-                      Point an OpenAI-compatible client at the local API and use
-                      the selected model ID.
-                    </p>
-                    <dl>
-                      <div>
-                        <dt>OPENAI BASE URL</dt>
-                        <dd>{localApiUrl}/v1</dd>
+                      <div className="dashboard-model-test-panel">
+                        <div>
+                          <span>RUN A LOCAL CHECK</span>
+                          <strong>
+                            Send a short prompt through the OpenAI-compatible endpoint.
+                          </strong>
+                          <small>
+                            The first response loads the model into memory and can take a little while. The test now runs as a single turn and exits automatically.
+                          </small>
+                        </div>
+                        <Button
+                          disabled={modelTestState === "running"}
+                          onClick={() => void runModelTest(selectedModel.id)}
+                        >
+                          {modelTestState === "running"
+                            ? "LOADING MODEL..."
+                            : modelTestState === "complete"
+                              ? "✓ TEST PASSED"
+                              : "RUN HELLO TEST"}
+                        </Button>
                       </div>
-                      <div>
-                        <dt>OLLAMA-COMPATIBLE URL</dt>
-                        <dd>{localApiUrl}/api</dd>
+
+                      {modelTestOutput ? (
+                        <div className="dashboard-model-test-result" aria-live="polite">
+                          <span>MODEL RESPONSE</span>
+                          <pre>{modelTestOutput}</pre>
+                        </div>
+                      ) : null}
+
+                      {modelTestError ? (
+                        <div className="dashboard-model-install-error" aria-live="polite">
+                          <strong>INFERENCE TEST FAILED</strong>
+                          <span>{modelTestError}</span>
+                        </div>
+                      ) : null}
+
+                      <div className="dashboard-command-list">
+                        <DashboardCommand
+                          index="01"
+                          title="KEEP THE LOCAL SERVICE RUNNING"
+                          command={serveCommand}
+                          copied={copiedCommand === "serve-selected"}
+                          onCopy={() =>
+                            void copyCommand("serve-selected", serveCommand)
+                          }
+                        />
+                        <DashboardCommand
+                          index="02"
+                          title="SEND A CHAT REQUEST"
+                          command={requestCommand}
+                          copied={copiedCommand === "request"}
+                          onCopy={() => void copyCommand("request", requestCommand)}
+                        />
                       </div>
-                      <div>
-                        <dt>SELECTED MODEL</dt>
-                        <dd>{selectedModel.id}</dd>
+                    </Card>
+
+                    <Card className="dashboard-context-panel">
+                      <span className="dashboard-panel-kicker">CONNECTION DETAILS</span>
+                      <h3>USE IT FROM EXISTING TOOLS</h3>
+                      <p>
+                        The model file and inference runtime are both ready. Point
+                        an OpenAI-compatible client at the local API.
+                      </p>
+                      <dl>
+                        <div>
+                          <dt>RUNTIME</dt>
+                          <dd>{selectedModelRuntime?.availableRuntimeId ?? "local"}</dd>
+                        </div>
+                        <div>
+                          <dt>OPENAI BASE URL</dt>
+                          <dd>{localApiUrl}/v1</dd>
+                        </div>
+                        <div>
+                          <dt>OLLAMA-COMPATIBLE URL</dt>
+                          <dd>{localApiUrl}/api</dd>
+                        </div>
+                        <div>
+                          <dt>SELECTED MODEL</dt>
+                          <dd>{selectedModel.id}</dd>
+                        </div>
+                      </dl>
+                      <Button
+                        className="dashboard-context-action"
+                        onClick={() => navigateResourceTab("builderstudio")}
+                      >
+                        USE WITH BUILDERSTUDIO
+                      </Button>
+                    </Card>
+                  </div>
+                ) : (
+                  <div className="dashboard-next-step-layout">
+                    <Card className="dashboard-runtime-required-panel">
+                      <div className="dashboard-panel-heading">
+                        <div>
+                          <span className="dashboard-panel-kicker">NEXT: ENABLE INFERENCE</span>
+                          <h3>
+                            {localRuntimeError
+                              ? "UPDATE THE LOCAL CLI"
+                              : `INSTALL ${preferredRuntimeId.toUpperCase()}`}
+                          </h3>
+                        </div>
+                        <span className="dashboard-runtime-missing-indicator">RUNTIME MISSING</span>
                       </div>
-                    </dl>
-                    <Button
-                      className="dashboard-context-action"
-                      onClick={() => navigateDashboard("builderstudio")}
-                    >
-                      USE WITH BUILDERSTUDIO
-                    </Button>
-                  </Card>
-                </div>
+                      <p>
+                        Your model download is complete. OpenModel still needs a
+                        compatible local inference engine before chat requests can run.
+                      </p>
+                      <div className="dashboard-command-list">
+                        <DashboardCommand
+                          index="01"
+                          title={localRuntimeError ? "UPDATE OPENMODEL" : "INSTALL THE RUNTIME"}
+                          command={
+                            localRuntimeError
+                              ? "npm install -g @wundercorp/openmodel@latest"
+                              : runtimeInstallCommand
+                          }
+                          copied={copiedCommand === "runtime-install"}
+                          onCopy={() =>
+                            void copyCommand(
+                              "runtime-install",
+                              localRuntimeError
+                                ? "npm install -g @wundercorp/openmodel@latest"
+                                : runtimeInstallCommand,
+                            )
+                          }
+                        />
+                        <DashboardCommand
+                          index="02"
+                          title="VERIFY OPENMODEL CAN SEE IT"
+                          command={runtimeVerifyCommand}
+                          copied={copiedCommand === "runtime-verify"}
+                          onCopy={() =>
+                            void copyCommand("runtime-verify", runtimeVerifyCommand)
+                          }
+                        />
+                      </div>
+                      <div className="dashboard-runtime-actions">
+                        <Button
+                          disabled={localApiState === "loading"}
+                          onClick={() => void loadLocalModelRegistry(localApiUrl)}
+                        >
+                          {localApiState === "loading" ? "CHECKING" : "RECHECK RUNTIME"}
+                        </Button>
+                        <span>
+                          Restart <code>om serve</code> only if the runtime is still
+                          not detected after installation.
+                        </span>
+                      </div>
+                    </Card>
+
+                    <Card className="dashboard-context-panel dashboard-runtime-context-panel">
+                      <span className="dashboard-panel-kicker">MODEL STATUS</span>
+                      <h3>DOWNLOADED IS NOT YET RUNNABLE</h3>
+                      <p>
+                        OpenModel separates model storage from execution. The GGUF
+                        file is safely installed; {preferredRuntimeId} supplies the
+                        native inference binary that reads it.
+                      </p>
+                      <dl>
+                        <div>
+                          <dt>MODEL FILE</dt>
+                          <dd>✓ INSTALLED</dd>
+                        </div>
+                        <div>
+                          <dt>REQUIRED RUNTIME</dt>
+                          <dd>{preferredRuntimeId}</dd>
+                        </div>
+                        <div>
+                          <dt>PLATFORM</dt>
+                          <dd>
+                            {localRuntimeStatus
+                              ? `${localRuntimeStatus.platform} / ${localRuntimeStatus.architecture}`
+                              : "UNKNOWN"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>CHAT API</dt>
+                          <dd>BLOCKED UNTIL RUNTIME IS READY</dd>
+                        </div>
+                      </dl>
+                    </Card>
+                  </div>
+                )
               ) : null}
             </section>
           ) : null}
 
-          {activeRoute === "builderstudio" ? (
+          {activeRoute === "resources" ? (
+            <div className="dashboard-resource-tabs" role="tablist" aria-label="Resources">
+              <button
+                className={activeResourceTab === "builderstudio" ? "is-active" : undefined}
+                type="button"
+                role="tab"
+                aria-selected={activeResourceTab === "builderstudio"}
+                onClick={() => navigateResourceTab("builderstudio")}
+              >
+                <span>01</span>
+                BUILDERSTUDIO / BS CLI
+              </button>
+              <button
+                className={activeResourceTab === "doku" ? "is-active" : undefined}
+                type="button"
+                role="tab"
+                aria-selected={activeResourceTab === "doku"}
+                onClick={() => navigateResourceTab("doku")}
+              >
+                <span>02</span>
+                DOKU.SH
+              </button>
+            </div>
+          ) : null}
+
+          {activeRoute === "resources" && activeResourceTab === "builderstudio" ? (
             <section className="dashboard-section dashboard-page-view">
               <div className="dashboard-section-header">
                 <div>
@@ -1722,7 +2506,7 @@ function DashboardPage({
                 <div className="dashboard-tool-readiness-status">
                   <span
                     className={`dashboard-tool-status-dot ${
-                      localApiConnected && activeLocalModelId ? "is-ready" : ""
+                      localApiConnected && activeLocalModelRunnable ? "is-ready" : ""
                     }`}
                   ></span>
                   <div>
@@ -1730,9 +2514,11 @@ function DashboardPage({
                     <strong>
                       {!localApiConnected
                         ? "CONNECT THE LOCAL SERVICE"
-                        : activeLocalModelId
-                          ? "READY FOR BUILDERSTUDIO"
-                          : "INSTALL OR SELECT A MODEL"}
+                        : !activeLocalModelId
+                          ? "INSTALL OR SELECT A MODEL"
+                          : activeLocalModelRunnable
+                            ? "READY FOR BUILDERSTUDIO"
+                            : "INSTALL THE MODEL RUNTIME"}
                     </strong>
                   </div>
                 </div>
@@ -1748,6 +2534,10 @@ function DashboardPage({
                   ) : localModels.length === 0 ? (
                     <Button onClick={() => navigateDashboard("models")}>
                       INSTALL A MODEL
+                    </Button>
+                  ) : !activeLocalModelRunnable ? (
+                    <Button onClick={() => navigateDashboard("models")}>
+                      FIX MODEL RUNTIME
                     </Button>
                   ) : (
                     <label className="dashboard-tool-model-select">
@@ -1777,7 +2567,7 @@ function DashboardPage({
                     <button
                       className="dashboard-copy-all-button"
                       type="button"
-                      disabled={!activeLocalModelId}
+                      disabled={!activeLocalModelRunnable}
                       onClick={() =>
                         void copyCommand(
                           "builderstudio-all",
@@ -1791,10 +2581,11 @@ function DashboardPage({
                     </button>
                   </div>
 
-                  {!activeLocalModelId ? (
+                  {!activeLocalModelId || !activeLocalModelRunnable ? (
                     <div className="dashboard-tool-inline-notice">
-                      Connect the local service and select an installed model to
-                      generate the final commands.
+                      {!activeLocalModelId
+                        ? "Connect the local service and select an installed model to generate the final commands."
+                        : "The model is installed, but BuilderStudio requests will fail until its local inference runtime is available. Open Models to finish runtime setup."}
                     </div>
                   ) : null}
 
@@ -1917,11 +2708,11 @@ ${builderStudioInitializeCommand}`,
             </section>
           ) : null}
 
-          {activeRoute === "doku" ? (
+          {activeRoute === "resources" && activeResourceTab === "doku" ? (
             <section className="dashboard-section dashboard-page-view">
               <div className="dashboard-section-header">
                 <div>
-                  <span className="dashboard-section-index">04</span>
+                  <span className="dashboard-section-index">03</span>
                   <Badge>DOCUMENTATION WORKFLOW</Badge>
                   <h2>GENERATE DOCS AS YOU BUILD</h2>
                   <p>
@@ -2070,6 +2861,420 @@ ${dokuGenerateCommand}`,
                 </div>
                 <CodeBlock>{dokuPackageScripts}</CodeBlock>
               </Card>
+            </section>
+          ) : null}
+
+          {activeRoute === "metrics" ? (
+            <section className="dashboard-section dashboard-page-view dashboard-metrics-page">
+              <div className="dashboard-section-header">
+                <div>
+                  <span className="dashboard-section-index">04</span>
+                  <Badge>LOCAL OBSERVABILITY</Badge>
+                  <h2>TOKENS AND INFERENCE</h2>
+                  <p>
+                    Track local request volume, estimated token usage, latency,
+                    throughput, model activity, and browser-to-cloud control-plane health.
+                  </p>
+                </div>
+                <div className="dashboard-page-actions">
+                  <Button
+                    variant="outline"
+                    disabled={!localApiConnected || localMetricsLoading}
+                    onClick={() => void loadLocalMetricsSnapshot(true)}
+                  >
+                    {localMetricsLoading ? "SYNCING" : "REFRESH METRICS"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={
+                      !localApiConnected ||
+                      !localMetrics ||
+                      localMetricsResetting ||
+                      (localInferenceMetrics?.activeRequests ?? 0) > 0
+                    }
+                    onClick={() => void clearLocalMetrics()}
+                  >
+                    {localMetricsResetting ? "RESETTING" : "RESET LOCAL"}
+                  </Button>
+                </div>
+              </div>
+
+              <Card className="dashboard-metrics-privacy">
+                <span className="dashboard-metrics-privacy-mark">LOCAL_ONLY</span>
+                <div>
+                  <strong>METRICS STAY ON THIS COMPUTER</strong>
+                  <p>
+                    OpenModel stores counts and timing metadata in memory only. Prompt
+                    and response content are not retained. Token counts are estimates
+                    until a runtime supplies exact usage data, and totals reset when
+                    <code> om serve </code> restarts.
+                  </p>
+                </div>
+              </Card>
+
+              {!localApiConnected ? (
+                <Card className="dashboard-metrics-connect-panel">
+                  <div>
+                    <span className="dashboard-panel-kicker">LOCAL SERVICE REQUIRED</span>
+                    <h3>CONNECT TO VIEW INFERENCE METRICS</h3>
+                    <p>
+                      Start <code>om serve --port 11435</code>, then connect the
+                      dashboard to the local API. No background connection is attempted.
+                    </p>
+                  </div>
+                  <form
+                    className="dashboard-local-api-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void loadLocalModelRegistry(localApiInput);
+                    }}
+                  >
+                    <label htmlFor="metrics-local-api-url">LOCAL SERVICE</label>
+                    <input
+                      id="metrics-local-api-url"
+                      value={localApiInput}
+                      onChange={(event) => setLocalApiInput(event.target.value)}
+                      spellCheck={false}
+                    />
+                    <Button disabled={localApiState === "loading"} type="submit">
+                      {localApiState === "loading" ? "CONNECTING" : "CONNECT"}
+                    </Button>
+                  </form>
+                  {localApiError ? (
+                    <p className="dashboard-local-api-error">{localApiError}</p>
+                  ) : null}
+                </Card>
+              ) : localMetricsError && !localMetrics ? (
+                <Card className="dashboard-metrics-connect-panel dashboard-metrics-error-panel">
+                  <div>
+                    <span className="dashboard-panel-kicker">METRICS UNAVAILABLE</span>
+                    <h3>UPDATE THE LOCAL OPENMODEL CLI</h3>
+                    <p>{localMetricsError}</p>
+                  </div>
+                  <DashboardCommand
+                    index="$"
+                    title="UPDATE OPENMODEL"
+                    command="npm install -g @wundercorp/openmodel@latest"
+                    copied={copiedCommand === "metrics-update-cli"}
+                    onCopy={() =>
+                      void copyCommand(
+                        "metrics-update-cli",
+                        "npm install -g @wundercorp/openmodel@latest",
+                      )
+                    }
+                  />
+                </Card>
+              ) : (
+                <>
+                  {localMetricsError ? (
+                    <div className="authentication-notice authentication-notice-error dashboard-notice">
+                      <span>METRICS_WARNING</span>
+                      <strong>{localMetricsError}</strong>
+                      <button
+                        type="button"
+                        onClick={() => void loadLocalMetricsSnapshot(true)}
+                      >
+                        RETRY
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <div className="dashboard-metrics-grid">
+                    <Card className="dashboard-metric-card">
+                      <span>TOTAL TOKENS</span>
+                      <strong>{formatMetricNumber(localTotalTokens)}</strong>
+                      <small>ESTIMATED LOCAL USAGE</small>
+                    </Card>
+                    <Card className="dashboard-metric-card">
+                      <span>REQUESTS</span>
+                      <strong>
+                        {formatMetricNumber(localInferenceMetrics?.totalRequests)}
+                      </strong>
+                      <small>
+                        {formatMetricNumber(localInferenceMetrics?.activeRequests)} ACTIVE
+                      </small>
+                    </Card>
+                    <Card className="dashboard-metric-card">
+                      <span>SUCCESS RATE</span>
+                      <strong>{formatPercent(localInferenceSuccessRate)}</strong>
+                      <small>
+                        {formatMetricNumber(localInferenceMetrics?.failedRequests)} FAILED ·{" "}
+                        {formatMetricNumber(localInferenceMetrics?.cancelledRequests)} CANCELLED
+                      </small>
+                    </Card>
+                    <Card className="dashboard-metric-card">
+                      <span>AVG LATENCY</span>
+                      <strong>
+                        {formatDuration(localInferenceMetrics?.averageLatencyMs)}
+                      </strong>
+                      <small>
+                        P50 {formatDuration(localInferenceMetrics?.p50LatencyMs)}
+                      </small>
+                    </Card>
+                    <Card className="dashboard-metric-card">
+                      <span>P95 LATENCY</span>
+                      <strong>{formatDuration(localInferenceMetrics?.p95LatencyMs)}</strong>
+                      <small>
+                        MAX {formatDuration(localInferenceMetrics?.maxLatencyMs)}
+                      </small>
+                    </Card>
+                    <Card className="dashboard-metric-card">
+                      <span>COMPLETION SPEED</span>
+                      <strong>
+                        {formatMetricNumber(
+                          localInferenceMetrics?.averageTokensPerSecond,
+                        )}
+                      </strong>
+                      <small>EST. TOKENS / SECOND</small>
+                    </Card>
+                    <Card className="dashboard-metric-card">
+                      <span>MODEL STORAGE</span>
+                      <strong>{formatBytes(localMetrics?.models.storageBytes)}</strong>
+                      <small>
+                        {formatMetricNumber(localMetrics?.models.installedCount)} INSTALLED ·{" "}
+                        {formatMetricNumber(localMetrics?.models.runnableCount)} RUNNABLE
+                      </small>
+                    </Card>
+                    <Card className="dashboard-metric-card">
+                      <span>METRICS WINDOW</span>
+                      <strong>{formatUptime(localMetrics?.server.metricsUptimeSeconds)}</strong>
+                      <small>
+                        SERVER UP {formatUptime(localMetrics?.server.uptimeSeconds)}
+                      </small>
+                    </Card>
+                  </div>
+
+                  <div className="dashboard-metrics-split">
+                    <Card className="dashboard-metrics-panel">
+                      <div className="dashboard-panel-heading">
+                        <div>
+                          <span className="dashboard-panel-kicker">TOKEN MIX</span>
+                          <h3>PROMPT VS COMPLETION</h3>
+                        </div>
+                        <span className="dashboard-metrics-live-indicator">
+                          {(localInferenceMetrics?.activeRequests ?? 0) > 0
+                            ? "INFERENCE ACTIVE"
+                            : "IDLE"}
+                        </span>
+                      </div>
+
+                      <div className="dashboard-token-breakdown">
+                        <div>
+                          <span>PROMPT TOKENS</span>
+                          <strong>
+                            {formatMetricNumber(localInferenceMetrics?.promptTokens)}
+                          </strong>
+                          <small>{formatPercent(localPromptTokenShare)}</small>
+                        </div>
+                        <div className="dashboard-token-bar" aria-hidden="true">
+                          <span
+                            className="dashboard-token-bar-prompt"
+                            style={{ width: `${localPromptTokenShare}%` }}
+                          ></span>
+                        </div>
+                        <div>
+                          <span>COMPLETION TOKENS</span>
+                          <strong>
+                            {formatMetricNumber(localInferenceMetrics?.completionTokens)}
+                          </strong>
+                          <small>{formatPercent(localCompletionTokenShare)}</small>
+                        </div>
+                        <div className="dashboard-token-bar" aria-hidden="true">
+                          <span
+                            className="dashboard-token-bar-completion"
+                            style={{ width: `${localCompletionTokenShare}%` }}
+                          ></span>
+                        </div>
+                      </div>
+                    </Card>
+
+                    <Card className="dashboard-metrics-panel">
+                      <div className="dashboard-panel-heading">
+                        <div>
+                          <span className="dashboard-panel-kicker">LOCAL RUNTIME</span>
+                          <h3>INFERENCE ACTIVITY</h3>
+                        </div>
+                      </div>
+                      <dl className="dashboard-definition-list dashboard-metrics-definition-list">
+                        <div>
+                          <dt>ACTIVE REQUESTS</dt>
+                          <dd>
+                            {formatMetricNumber(localInferenceMetrics?.activeRequests)}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>SUCCESSFUL</dt>
+                          <dd>
+                            {formatMetricNumber(
+                              localInferenceMetrics?.successfulRequests,
+                            )}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>INSTALL JOBS</dt>
+                          <dd>
+                            {formatMetricNumber(localMetrics?.installs.active)} ACTIVE ·{" "}
+                            {formatMetricNumber(localMetrics?.installs.completed)} COMPLETE
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>LAST REQUEST</dt>
+                          <dd>
+                            {localInferenceMetrics?.lastRequestAt
+                              ? new Date(
+                                  localInferenceMetrics.lastRequestAt,
+                                ).toLocaleTimeString()
+                              : "NO REQUESTS YET"}
+                          </dd>
+                        </div>
+                      </dl>
+                    </Card>
+                  </div>
+
+                  <Card className="dashboard-metrics-table-panel">
+                    <div className="dashboard-panel-heading">
+                      <div>
+                        <span className="dashboard-panel-kicker">INFERENCE LOG</span>
+                        <h3>RECENT REQUESTS</h3>
+                      </div>
+                      <span className="dashboard-metrics-generated-at">
+                        UPDATED{" "}
+                        {localMetrics?.generatedAt
+                          ? new Date(localMetrics.generatedAt).toLocaleTimeString()
+                          : "--"}
+                      </span>
+                    </div>
+                    <div className="dashboard-metrics-request-header">
+                      <span>TIME</span>
+                      <span>MODEL</span>
+                      <span>RUNTIME</span>
+                      <span>TOKENS</span>
+                      <span>LATENCY</span>
+                      <span>SPEED</span>
+                      <span>STATUS</span>
+                    </div>
+                    {(localMetrics?.recentRequests.length ?? 0) === 0 ? (
+                      <div className="dashboard-table-empty">
+                        RUN A MODEL REQUEST TO START THE TRACKER
+                      </div>
+                    ) : (
+                      localMetrics?.recentRequests.slice(0, 20).map((request) => (
+                        <div className="dashboard-metrics-request-row" key={request.id}>
+                          <span>{new Date(request.completedAt).toLocaleTimeString()}</span>
+                          <code title={request.modelId}>{request.modelId}</code>
+                          <span>{request.runtimeId ?? "UNKNOWN"}</span>
+                          <strong>{formatMetricNumber(request.totalTokens)}</strong>
+                          <span>{formatDuration(request.latencyMs)}</span>
+                          <span>
+                            {formatMetricNumber(request.tokensPerSecond)} TOK/S
+                          </span>
+                          <span
+                            className={`dashboard-metrics-status dashboard-metrics-status-${request.status}`}
+                            title={request.error}
+                          >
+                            {request.status.toUpperCase()}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </Card>
+
+                  <Card className="dashboard-metrics-table-panel">
+                    <div className="dashboard-panel-heading">
+                      <div>
+                        <span className="dashboard-panel-kicker">MODEL BREAKDOWN</span>
+                        <h3>USAGE BY MODEL</h3>
+                      </div>
+                    </div>
+                    <div className="dashboard-metrics-model-header">
+                      <span>MODEL</span>
+                      <span>RUNTIME</span>
+                      <span>REQUESTS</span>
+                      <span>TOKENS</span>
+                      <span>AVG LATENCY</span>
+                      <span>AVG SPEED</span>
+                    </div>
+                    {(localMetrics?.models.byModel.length ?? 0) === 0 ? (
+                      <div className="dashboard-table-empty">
+                        NO MODEL USAGE RECORDED IN THIS SERVER SESSION
+                      </div>
+                    ) : (
+                      localMetrics?.models.byModel.map((modelMetric) => (
+                        <div
+                          className="dashboard-metrics-model-row"
+                          key={modelMetric.modelId}
+                        >
+                          <code title={modelMetric.modelId}>
+                            {modelMetric.modelId}
+                          </code>
+                          <span>{modelMetric.runtimeId ?? "UNKNOWN"}</span>
+                          <strong>{formatMetricNumber(modelMetric.requests)}</strong>
+                          <span>{formatMetricNumber(modelMetric.totalTokens)}</span>
+                          <span>{formatDuration(modelMetric.averageLatencyMs)}</span>
+                          <span>
+                            {formatMetricNumber(modelMetric.averageTokensPerSecond)} TOK/S
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </Card>
+                </>
+              )}
+
+              <div className="dashboard-metrics-cloud-heading">
+                <div>
+                  <span className="dashboard-panel-kicker">CLOUD CONTROL PLANE</span>
+                  <h3>BROWSER SESSION HEALTH</h3>
+                  <p>
+                    These values describe dashboard synchronization only. Local prompts,
+                    responses, model files, and local token metrics are not uploaded.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  disabled={cloudRefreshing}
+                  onClick={() => void loadDashboard()}
+                >
+                  {cloudRefreshing ? "SYNCING CLOUD" : "REFRESH CLOUD"}
+                </Button>
+              </div>
+
+              <div className="dashboard-cloud-metrics-grid">
+                <Card className="dashboard-metric-card">
+                  <span>CLOUD API</span>
+                  <strong>{cloudStatus}</strong>
+                  <small>{getApiBaseUrl()}</small>
+                </Card>
+                <Card className="dashboard-metric-card">
+                  <span>SYNC ATTEMPTS</span>
+                  <strong>{formatMetricNumber(cloudMetrics.syncAttempts)}</strong>
+                  <small>
+                    {formatMetricNumber(cloudMetrics.failedSyncs)} FAILED
+                  </small>
+                </Card>
+                <Card className="dashboard-metric-card">
+                  <span>SYNC SUCCESS</span>
+                  <strong>{formatPercent(cloudSyncSuccessRate)}</strong>
+                  <small>
+                    {formatMetricNumber(cloudMetrics.successfulSyncs)} COMPLETE
+                  </small>
+                </Card>
+                <Card className="dashboard-metric-card">
+                  <span>CLOUD LATENCY</span>
+                  <strong>{formatDuration(cloudMetrics.lastLatencyMs)}</strong>
+                  <small>AVG {formatDuration(cloudAverageLatencyMs)}</small>
+                </Card>
+                <Card className="dashboard-metric-card">
+                  <span>GATEWAYS</span>
+                  <strong>{formatMetricNumber(gatewayRecords.length)}</strong>
+                  <small>REGISTRY ENTRIES</small>
+                </Card>
+                <Card className="dashboard-metric-card">
+                  <span>SESSION REMAINING</span>
+                  <strong>{formatUptime(sessionRemainingSeconds)}</strong>
+                  <small>COGNITO ACCESS TOKEN</small>
+                </Card>
+              </div>
             </section>
           ) : null}
 
@@ -2302,7 +3507,7 @@ function SiteFooter() {
       <div className="footer-main">
         <div className="footer-community-copy">
           <Badge>OPEN SOURCE COMMUNITY</Badge>
-          <h2>BUILD THE FUTURE OF LOCAL INFERENCE WITH US.</h2>
+          <h2>BUILD THE FUTURE</h2>
           <p className="footer-description">
             Join the WunderCorp community, share your gateways, contribute to
             the project, and keep up with new package releases.

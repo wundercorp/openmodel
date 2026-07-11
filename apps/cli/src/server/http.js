@@ -1,8 +1,10 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { stat } from 'node:fs/promises';
 import { findManifest, listManifests } from '../lib/model-store.js';
 import { installModel } from '../lib/install-model.js';
-import { selectRuntime } from '../runtimes/index.js';
+import { createLocalMetricsStore } from '../lib/metrics.js';
+import { getRuntimeStatus, RuntimeUnavailableError, selectRuntime } from '../runtimes/index.js';
 
 const defaultAllowedBrowserOrigins = [
   'https://openmodel.sh',
@@ -96,6 +98,45 @@ function messagesToPrompt(messages) {
     return '';
   }
   return messages.map((message) => `${message.role ?? 'user'}: ${message.content ?? ''}`).join('\n');
+}
+
+
+async function calculateModelStorageBytes(manifests) {
+  let totalBytes = 0;
+  for (const manifest of manifests) {
+    for (const artifactPath of manifest.artifactPaths ?? []) {
+      try {
+        const artifactStats = await stat(artifactPath);
+        if (artifactStats.isFile()) {
+          totalBytes += artifactStats.size;
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+  return totalBytes;
+}
+
+function createRequestAbortController(request, response) {
+  const abortController = new AbortController();
+  const abortRequest = () => abortController.abort();
+  const abortClosedResponse = () => {
+    if (!response.writableEnded) {
+      abortController.abort();
+    }
+  };
+
+  request.once('aborted', abortRequest);
+  response.once('close', abortClosedResponse);
+
+  return {
+    signal: abortController.signal,
+    cleanup() {
+      request.removeListener('aborted', abortRequest);
+      response.removeListener('close', abortClosedResponse);
+    }
+  };
 }
 
 function serializeInstallJob(job) {
@@ -234,6 +275,26 @@ export async function startLocalServer(options = {}) {
   const host = options.host ?? '127.0.0.1';
   const port = Number(options.port ?? 11435);
   const defaultModel = options.model;
+  const metricsStore = createLocalMetricsStore();
+  let runtimeStatusCache;
+  let runtimeStatusCacheAt = 0;
+  let runtimeStatusManifestSignature = '';
+
+  async function readRuntimeStatus(manifests, maximumAgeMs = 5000) {
+    const manifestSignature = manifests.map((manifest) => manifest.storedId).join('|');
+    const cacheIsCurrent =
+      runtimeStatusCache &&
+      runtimeStatusManifestSignature === manifestSignature &&
+      Date.now() - runtimeStatusCacheAt < maximumAgeMs;
+    if (cacheIsCurrent) {
+      return runtimeStatusCache;
+    }
+
+    runtimeStatusCache = await getRuntimeStatus(manifests);
+    runtimeStatusCacheAt = Date.now();
+    runtimeStatusManifestSignature = manifestSignature;
+    return runtimeStatusCache;
+  }
   const server = http.createServer(async (request, response) => {
     const corsHeaders = createCorsHeaders(request, options);
     try {
@@ -246,7 +307,54 @@ export async function startLocalServer(options = {}) {
 
       const url = new URL(request.url ?? '/', `http://${request.headers.host ?? `${host}:${port}`}`);
       if (request.method === 'GET' && url.pathname === '/health') {
-        return sendJson(response, 200, { status: 'ok' }, corsHeaders);
+        return sendJson(response, 200, {
+          status: 'ok',
+          service: 'openmodel-local-api',
+          platform: process.platform,
+          architecture: process.arch,
+          capabilities: [
+            'models',
+            'model-catalog',
+            'model-install',
+            'install-progress',
+            'runtime-status',
+            'chat-completions',
+            'metrics'
+          ]
+        }, corsHeaders);
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/runtime-status') {
+        const manifests = await listManifests();
+        return sendJson(response, 200, { data: await readRuntimeStatus(manifests, 0) }, corsHeaders);
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/metrics') {
+        const manifests = await listManifests();
+        const [runtimeStatus, modelStorageBytes] = await Promise.all([
+          readRuntimeStatus(manifests),
+          calculateModelStorageBytes(manifests)
+        ]);
+        return sendJson(response, 200, {
+          data: metricsStore.snapshot({
+            manifests,
+            runtimeStatus,
+            modelStorageBytes,
+            installJobs: [...installJobs.values()],
+            host,
+            port: server.address() && typeof server.address() === 'object'
+              ? server.address().port
+              : port
+          })
+        }, corsHeaders);
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/metrics/reset') {
+        if (!isTrustedBrowserRequest(request, options)) {
+          return sendJson(response, 403, { error: 'This browser origin is not allowed to reset local metrics.' }, corsHeaders);
+        }
+        if (metricsStore.getActiveRequestCount() > 0) {
+          return sendJson(response, 409, { error: 'Wait for active inference requests to finish before resetting metrics.' }, corsHeaders);
+        }
+        metricsStore.reset();
+        return sendJson(response, 200, { data: { reset: true, resetAt: new Date().toISOString() } }, corsHeaders);
       }
       if (request.method === 'GET' && url.pathname === '/v1/models') {
         const manifests = await listManifests();
@@ -324,15 +432,49 @@ export async function startLocalServer(options = {}) {
         if (!manifest) {
           return sendJson(response, 404, { error: { message: 'Model is not installed.' } }, corsHeaders);
         }
-        const runtime = await selectRuntime(manifest, options.runtime ?? 'auto');
-        const content = await runtime.generate(manifest, messagesToPrompt(body.messages), { maxTokens: body.max_tokens });
-        return sendJson(response, 200, {
-          id: `chatcmpl-${Date.now()}`,
-          object: 'chat.completion',
-          created: Math.floor(Date.now() / 1000),
-          model: manifest.storedId,
-          choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }]
-        }, corsHeaders);
+        const prompt = messagesToPrompt(body.messages);
+        const inferenceMetrics = metricsStore.beginInference({
+          endpoint: '/v1/chat/completions',
+          modelId: manifest.storedId,
+          prompt
+        });
+        let inferenceRequest;
+        try {
+          const runtime = await selectRuntime(manifest, options.runtime ?? 'auto');
+          metricsStore.setRuntime(inferenceMetrics, runtime.id);
+          inferenceRequest = createRequestAbortController(request, response);
+          const content = await runtime.generate(
+            manifest,
+            prompt,
+            {
+              maxTokens: body.max_tokens,
+              signal: inferenceRequest.signal
+            }
+          );
+          const usage = metricsStore.completeInference(inferenceMetrics, content);
+          return sendJson(response, 200, {
+            id: `chatcmpl-${Date.now()}`,
+            object: 'chat.completion',
+            created: Math.floor(Date.now() / 1000),
+            model: manifest.storedId,
+            choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }],
+            usage: {
+              prompt_tokens: usage.promptTokens,
+              completion_tokens: usage.completionTokens,
+              total_tokens: usage.totalTokens,
+              estimated: usage.estimated
+            },
+            openmodel_metrics: {
+              latency_ms: usage.latencyMs,
+              completion_tokens_per_second: usage.tokensPerSecond
+            }
+          }, corsHeaders);
+        } catch (error) {
+          metricsStore.failInference(inferenceMetrics, error);
+          throw error;
+        } finally {
+          inferenceRequest?.cleanup();
+        }
       }
       if (request.method === 'POST' && url.pathname === '/api/generate') {
         const body = await readJsonBody(request);
@@ -340,17 +482,54 @@ export async function startLocalServer(options = {}) {
         if (!manifest) {
           return sendJson(response, 404, { error: 'Model is not installed.' }, corsHeaders);
         }
-        const runtime = await selectRuntime(manifest, options.runtime ?? 'auto');
-        const output = await runtime.generate(manifest, String(body.prompt ?? ''));
-        return sendJson(response, 200, {
-          model: manifest.storedId,
-          created_at: new Date().toISOString(),
-          response: output,
-          done: true
-        }, corsHeaders);
+        const prompt = String(body.prompt ?? '');
+        const inferenceMetrics = metricsStore.beginInference({
+          endpoint: '/api/generate',
+          modelId: manifest.storedId,
+          prompt
+        });
+        let inferenceRequest;
+        try {
+          const runtime = await selectRuntime(manifest, options.runtime ?? 'auto');
+          metricsStore.setRuntime(inferenceMetrics, runtime.id);
+          inferenceRequest = createRequestAbortController(request, response);
+          const output = await runtime.generate(
+            manifest,
+            prompt,
+            { signal: inferenceRequest.signal }
+          );
+          const usage = metricsStore.completeInference(inferenceMetrics, output);
+          return sendJson(response, 200, {
+            model: manifest.storedId,
+            created_at: new Date().toISOString(),
+            response: output,
+            done: true,
+            prompt_eval_count: usage.promptTokens,
+            eval_count: usage.completionTokens,
+            total_duration: usage.latencyMs * 1000000,
+            openmodel_usage_estimated: usage.estimated
+          }, corsHeaders);
+        } catch (error) {
+          metricsStore.failInference(inferenceMetrics, error);
+          throw error;
+        } finally {
+          inferenceRequest?.cleanup();
+        }
       }
       return sendJson(response, 404, { error: 'Not found' }, corsHeaders);
     } catch (error) {
+      if (response.destroyed || response.writableEnded) {
+        return;
+      }
+      if (error instanceof RuntimeUnavailableError) {
+        return sendJson(response, error.statusCode, {
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details
+          }
+        }, corsHeaders);
+      }
       return sendJson(response, 500, {
         error: error instanceof Error ? error.message : String(error)
       }, corsHeaders);

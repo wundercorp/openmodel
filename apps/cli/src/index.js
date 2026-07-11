@@ -5,7 +5,7 @@ import { readConfig, writeConfig } from './lib/config.js';
 import { installModel } from './lib/install-model.js';
 import { findManifest, listManifests, removeManifest } from './lib/model-store.js';
 import { loadGateways, resolveReference } from './gateways/registry.js';
-import { selectRuntime, runtimes } from './runtimes/index.js';
+import { getRuntimeInstallCommand, selectRuntime, runtimes } from './runtimes/index.js';
 import { startLocalServer } from './server/http.js';
 import { login, logout, whoami } from './lib/auth.js';
 import { runProcess } from './lib/process.js';
@@ -151,7 +151,14 @@ function parseRequestedPackageName(packageSpec) {
 async function doctorCommand() {
   process.stdout.write(`Node ${process.version}\n`);
   process.stdout.write(`Data ${getPaths().home}\n`);
-  for (const runtime of runtimes) process.stdout.write(`${runtime.id}: ${(await runtime.available()) ? 'available' : 'not found'}\n`);
+  for (const runtime of runtimes) {
+    const available = await runtime.available();
+    process.stdout.write(`${runtime.id}: ${available ? 'available' : 'not found'}\n`);
+    if (!available) {
+      const installCommand = getRuntimeInstallCommand(runtime.id);
+      if (installCommand) process.stdout.write(`  install: ${installCommand}\n`);
+    }
+  }
   process.stdout.write(`Gateways: ${(await loadGateways()).map((gateway) => gateway.id).join(', ')}\n`);
 }
 

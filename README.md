@@ -66,11 +66,14 @@ The local server supports:
 - `GET /v1/model-catalog`
 - `POST /v1/models/install`
 - `GET /v1/model-installs/:jobId`
+- `GET /v1/runtime-status`
+- `GET /v1/metrics`
+- `POST /v1/metrics/reset`
 - `POST /v1/chat/completions`
 - `GET /api/tags`
 - `POST /api/generate`
 
-The authenticated web dashboard uses the catalog and install-job endpoints for a one-click starter-model download with local progress reporting. Installation requests are restricted to configured browser origins.
+The authenticated web dashboard uses the catalog and install-job endpoints for a one-click starter-model download with local progress reporting. It also includes a local-only metrics page for request counts, estimated token usage, latency, throughput, runtime activity, and per-model usage. Installation and metrics-reset requests are restricted to configured browser origins.
 
 ## Gateway interoperability
 
