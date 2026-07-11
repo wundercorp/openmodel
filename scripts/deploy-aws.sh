@@ -15,6 +15,8 @@ publish_npm_packages="false"
 skip_source_validation="false"
 automatically_approve_terraform="false"
 npm_publication_authentication_configured="false"
+publish_gateway_sdk_package="false"
+publish_cli_package="false"
 
 print_usage() {
   cat <<'USAGE'
@@ -257,8 +259,8 @@ run_npm_without_deployment_secrets() {
 }
 
 validate_package_lock_registry() {
-  if grep -q 'packages\.applied-caas-gateway1\.internal\.api\.openai\.org' "$repository_root_directory/package-lock.json"; then
-    fail_deployment "package-lock.json contains an internal package registry URL. Pull the sanitized lockfile before deploying."
+  if ! node "$repository_root_directory/scripts/validate-package-lock-registry.mjs"; then
+    fail_deployment "package-lock.json is not public-registry safe. Run npm run lockfile:refresh and commit the result."
   fi
 }
 
@@ -616,9 +618,23 @@ prepare_npm_release() {
   cli_package_name="$(node -p "require('$repository_root_directory/apps/cli/package.json').name")"
   cli_package_version="$(node -p "require('$repository_root_directory/apps/cli/package.json').version")"
 
-  if package_version_exists "$gateway_sdk_package_name" "$gateway_sdk_package_version" && package_version_exists "$cli_package_name" "$cli_package_version"; then
-    log_message "Both npm package versions already exist; npm authentication is not required"
-    return
+  publish_gateway_sdk_package="false"
+  publish_cli_package="false"
+
+  if package_version_exists "$gateway_sdk_package_name" "$gateway_sdk_package_version"; then
+    log_message "Reusing published dependency $gateway_sdk_package_name@$gateway_sdk_package_version"
+  else
+    publish_gateway_sdk_package="true"
+  fi
+
+  if package_version_exists "$cli_package_name" "$cli_package_version"; then
+    log_message "Reusing published package $cli_package_name@$cli_package_version"
+  else
+    publish_cli_package="true"
+  fi
+
+  if [[ "$publish_gateway_sdk_package" != "true" && "$publish_cli_package" != "true" ]]; then
+    fail_deployment "All npm package versions selected for publication already exist. Bump the package that changed, or omit --publish-npm for a website-only redeploy."
   fi
 
   log_message "Verifying npm authentication before changing AWS resources"
@@ -633,8 +649,7 @@ publish_workspace_package() {
   package_name="$(node -p "require('$package_json_path').name")"
   package_version="$(node -p "require('$package_json_path').version")"
   if package_version_exists "$package_name" "$package_version"; then
-    log_message "$package_name@$package_version already exists and will not be republished"
-    return
+    fail_deployment "$package_name@$package_version already exists. Bump the npm package versions before publishing."
   fi
   log_message "Publishing $package_name@$package_version with npm tag $NPM_DIST_TAG"
   env \
@@ -655,8 +670,18 @@ publish_npm_release() {
     return
   fi
   validate_npm_release_versions
-  publish_workspace_package "@wundercorp/openmodel-gateway-sdk" "$repository_root_directory/packages/gateway-sdk/package.json"
-  publish_workspace_package "@wundercorp/openmodel" "$repository_root_directory/apps/cli/package.json"
+
+  if [[ "$publish_gateway_sdk_package" == "true" ]]; then
+    publish_workspace_package "@wundercorp/openmodel-gateway-sdk" "$repository_root_directory/packages/gateway-sdk/package.json"
+  else
+    log_message "Skipping @wundercorp/openmodel-gateway-sdk because this exact version is already published"
+  fi
+
+  if [[ "$publish_cli_package" == "true" ]]; then
+    publish_workspace_package "@wundercorp/openmodel" "$repository_root_directory/apps/cli/package.json"
+  else
+    log_message "Skipping @wundercorp/openmodel because this exact version is already published"
+  fi
 }
 
 run_health_checks() {

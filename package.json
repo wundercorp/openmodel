@@ -13,7 +13,7 @@
     "build:workspaces": "npm run build --workspaces --if-present",
     "docs:update": "doku gen && doku pack . --output doku.docs.json",
     "docs:open": "doku open doku.docs.json --site https://doku.sh",
-    "check": "npm run check --workspaces --if-present",
+    "check": "node scripts/validate-package-lock-registry.mjs && npm run check --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "dev:web": "npm run dev --workspace @wundercorp/openmodel-web",
     "dev:cloud": "npm run dev --workspace @wundercorp/openmodel-cloud",
@@ -30,7 +30,9 @@
     "deploy:cloudflare": "bash scripts/deploy.sh --provider cloudflare",
     "version:bump": "node scripts/version-bump.mjs",
     "release:auto": "bash scripts/release.sh",
-    "release:publish": "node scripts/publish-npm.mjs"
+    "release:publish": "node scripts/publish-npm.mjs",
+    "release:verify-cli": "node scripts/verify-cli-release.mjs",
+    "lockfile:refresh": "npm install --package-lock-only --ignore-scripts --registry=https://registry.npmjs.org/ --no-audit --no-fund && node scripts/validate-package-lock-registry.mjs"
   },
   "engines": {
     "node": ">=20.19.0"

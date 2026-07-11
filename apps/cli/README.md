@@ -306,3 +306,30 @@ Authentication tokens are stored in the OpenModel data directory. Protect that d
 ## License
 
 Apache-2.0
+
+## External usage telemetry
+
+Run the guided setup flow:
+
+```bash
+om setup
+```
+
+Start the collector and connect a supported tool:
+
+```bash
+om serve --port 11435
+om setup claude-code --launch
+om setup codex
+om setup openrouter
+om setup bs
+```
+
+After running a cloud-model request, verify and optionally synchronize normalized usage metadata:
+
+```bash
+om telemetry summary
+om telemetry sync
+```
+
+The dashboard displays these sessions under **Metrics → External Usage**. Prompt and response content are excluded from the local telemetry ledger.

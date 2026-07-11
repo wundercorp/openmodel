@@ -135,6 +135,64 @@ export interface LocalModelMetricRecord {
   lastUsedAt?: string;
 }
 
+export interface ExternalUsageSourceSummary {
+  source: string;
+  requests: number;
+  totalTokens: number;
+  reportedCost: number;
+}
+
+export interface ExternalUsageModelSummary {
+  provider: string;
+  model: string;
+  requests: number;
+  totalTokens: number;
+  reportedCost: number;
+}
+
+export interface ExternalUsageSessionSummary {
+  sessionId: string;
+  source: string;
+  provider?: string;
+  model?: string;
+  requests: number;
+  totalTokens: number;
+  reportedCost: number;
+  startedAt: string;
+  lastEventAt: string;
+}
+
+export interface ExternalUsageSummary {
+  generatedAt: string;
+  scope: "local-external";
+  privacy: {
+    promptContentStored: boolean;
+    responseContentStored: boolean;
+    metadataAllowlisted: boolean;
+    persistence: string;
+  };
+  requests: {
+    total: number;
+    successful: number;
+    failed: number;
+  };
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens: number;
+    cacheWriteTokens: number;
+    reasoningTokens: number;
+    totalTokens: number;
+  };
+  cost: {
+    reported: number;
+    currency: string;
+  };
+  sessions: ExternalUsageSessionSummary[];
+  bySource: ExternalUsageSourceSummary[];
+  byModel: ExternalUsageModelSummary[];
+}
+
 export interface LocalMetricsSnapshot {
   generatedAt: string;
   scope: "local";
@@ -185,6 +243,7 @@ export interface LocalMetricsSnapshot {
     downloadedBytes: number;
   };
   recentRequests: LocalInferenceRecentRequest[];
+  externalUsage?: ExternalUsageSummary;
 }
 
 

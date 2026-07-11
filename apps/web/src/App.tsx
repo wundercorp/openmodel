@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Card, CodeBlock } from "./components/ui";
 import { UsagePricingDashboard } from "./components/UsagePricingDashboard";
+import { ExternalUsageDashboard } from "./components/ExternalUsageDashboard";
 import { PublicLocalMetricsPage } from "./components/PublicLocalMetricsPage";
 import {
   beginLogin,
@@ -48,7 +49,7 @@ type DashboardRoute =
   | "account";
 
 type DashboardResourceTab = "builderstudio" | "doku";
-type DashboardMetricsTab = "overview" | "performance" | "pricing" | "cloud";
+type DashboardMetricsTab = "overview" | "performance" | "external" | "pricing" | "cloud";
 
 interface CloudSessionMetrics {
   syncAttempts: number;
@@ -107,7 +108,7 @@ function readDashboardResourceTab(): DashboardResourceTab {
 
 function readDashboardMetricsTab(): DashboardMetricsTab {
   const tab = new URLSearchParams(window.location.search).get("tab");
-  if (tab === "performance" || tab === "pricing" || tab === "cloud") {
+  if (tab === "performance" || tab === "external" || tab === "pricing" || tab === "cloud") {
     return tab;
   }
   return "overview";
@@ -2925,7 +2926,7 @@ ${dokuGenerateCommand}`,
                   onClick={() => navigateMetricsTab("overview")}
                 >
                   <span>01</span>
-                  <strong>OVERVIEW</strong>
+                  <strong>LOCAL USAGE</strong>
                   <small>Health and totals</small>
                 </button>
                 <button
@@ -2943,12 +2944,24 @@ ${dokuGenerateCommand}`,
                 <button
                   type="button"
                   role="tab"
+                  aria-selected={activeMetricsTab === "external"}
+                  aria-controls="metrics-external-panel"
+                  className={activeMetricsTab === "external" ? "is-active" : ""}
+                  onClick={() => navigateMetricsTab("external")}
+                >
+                  <span>03</span>
+                  <strong>EXTERNAL USAGE</strong>
+                  <small>Claude, Codex, and SDKs</small>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
                   aria-selected={activeMetricsTab === "pricing"}
                   aria-controls="metrics-pricing-panel"
                   className={activeMetricsTab === "pricing" ? "is-active" : ""}
                   onClick={() => navigateMetricsTab("pricing")}
                 >
-                  <span>03</span>
+                  <span>04</span>
                   <strong>USAGE &amp; PRICING</strong>
                   <small>Allowance and cost</small>
                 </button>
@@ -2960,7 +2973,7 @@ ${dokuGenerateCommand}`,
                   className={activeMetricsTab === "cloud" ? "is-active" : ""}
                   onClick={() => navigateMetricsTab("cloud")}
                 >
-                  <span>04</span>
+                  <span>05</span>
                   <strong>CLOUD &amp; SYNC</strong>
                   <small>Session health</small>
                 </button>
@@ -2970,11 +2983,32 @@ ${dokuGenerateCommand}`,
               <div className="dashboard-section-header">
                 <div>
                   <span className="dashboard-section-index">04</span>
-                  <Badge>LOCAL OBSERVABILITY</Badge>
-                  <h2>TOKENS AND INFERENCE</h2>
+                  <Badge>
+                    {activeMetricsTab === "external"
+                      ? "SESSION TELEMETRY"
+                      : activeMetricsTab === "pricing"
+                        ? "WUNDERSHIP PRICING"
+                        : activeMetricsTab === "cloud"
+                          ? "CONTROL PLANE"
+                          : "LOCAL OBSERVABILITY"}
+                  </Badge>
+                  <h2>
+                    {activeMetricsTab === "external"
+                      ? "EXTERNAL TOKEN USAGE"
+                      : activeMetricsTab === "pricing"
+                        ? "USAGE AND COST"
+                        : activeMetricsTab === "cloud"
+                          ? "CLOUD AND SYNC"
+                          : "LOCAL TOKENS AND INFERENCE"}
+                  </h2>
                   <p>
-                    Track local request volume, estimated token usage, latency,
-                    throughput, model activity, and browser-to-cloud control-plane health.
+                    {activeMetricsTab === "external"
+                      ? "Capture token and cost metadata from Claude Code, Codex, OpenRouter, BuilderStudio, and custom SDKs through the local collector."
+                      : activeMetricsTab === "pricing"
+                        ? "Compare local and cloud-model usage, model-aware allowance consumption, provider rates, and synchronized billing estimates."
+                        : activeMetricsTab === "cloud"
+                          ? "Review browser authentication, cloud API synchronization, gateway registry health, and session timing."
+                          : "Track local request volume, estimated token usage, latency, throughput, and model activity."}
                   </p>
                 </div>
                 {activeMetricsTab === "overview" || activeMetricsTab === "performance" ? (
@@ -2997,6 +3031,16 @@ ${dokuGenerateCommand}`,
                       onClick={() => void clearLocalMetrics()}
                     >
                       {localMetricsResetting ? "RESETTING" : "RESET LOCAL"}
+                    </Button>
+                  </div>
+                ) : activeMetricsTab === "external" ? (
+                  <div className="dashboard-page-actions">
+                    <Button
+                      variant="outline"
+                      disabled={!localApiConnected || localMetricsLoading}
+                      onClick={() => void loadLocalMetricsSnapshot(true)}
+                    >
+                      {localMetricsLoading ? "REFRESHING" : "REFRESH EXTERNAL"}
                     </Button>
                   </div>
                 ) : null}
@@ -3391,6 +3435,21 @@ ${dokuGenerateCommand}`,
                   </Card>
                     </>
                   )}
+                </div>
+              ) : null}
+
+              {activeMetricsTab === "external" ? (
+                <div
+                  id="metrics-external-panel"
+                  className="dashboard-metrics-tab-panel"
+                  role="tabpanel"
+                  aria-label="External usage and setup"
+                >
+                  <ExternalUsageDashboard
+                    connected={localApiConnected}
+                    localApiUrl={localApiUrl}
+                    localMetrics={localMetrics}
+                  />
                 </div>
               ) : null}
 

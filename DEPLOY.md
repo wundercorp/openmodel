@@ -155,7 +155,7 @@ Then run:
 ./deploy.sh --publish-npm --yes
 ```
 
-The gateway SDK is published before the CLI. Existing versions are detected and skipped because npm versions are immutable.
+The gateway SDK is checked before the CLI. An already-published exact dependency version is reused, while missing package versions are published. Deployment fails when every selected package version already exists.
 
 `deploy.sh` publishes the versions already recorded in the package manifests; it does not change versions. Use the separate release incrementer before deployment when a new npm version is required:
 

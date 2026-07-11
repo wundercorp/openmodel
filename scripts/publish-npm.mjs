@@ -121,11 +121,6 @@ function packageVersionExists(packageName, packageVersion, registryUrl) {
 }
 
 function publishPackage(workspaceName, packageManifest, configuration) {
-  if (!configuration.dryRun && packageVersionExists(packageManifest.name, packageManifest.version, configuration.registryUrl)) {
-    process.stdout.write(`${packageManifest.name}@${packageManifest.version} already exists and will be skipped.\n`);
-    return;
-  }
-
   const publishArguments = [
     "publish",
     "--workspace",
@@ -170,8 +165,38 @@ function main() {
     }
   }
 
-  publishPackage("@wundercorp/openmodel-gateway-sdk", gatewaySdkPackage, configuration);
-  publishPackage("@wundercorp/openmodel", cliPackage, configuration);
+  if (configuration.dryRun) {
+    publishPackage("@wundercorp/openmodel-gateway-sdk", gatewaySdkPackage, configuration);
+    publishPackage("@wundercorp/openmodel", cliPackage, configuration);
+    return;
+  }
+
+  const gatewaySdkVersionExists = packageVersionExists(
+    gatewaySdkPackage.name,
+    gatewaySdkPackage.version,
+    configuration.registryUrl,
+  );
+  const cliVersionExists = packageVersionExists(
+    cliPackage.name,
+    cliPackage.version,
+    configuration.registryUrl,
+  );
+
+  if (gatewaySdkVersionExists && cliVersionExists) {
+    fail("All selected npm package versions already exist. Bump the package that changed, or skip npm publication.");
+  }
+
+  if (gatewaySdkVersionExists) {
+    process.stdout.write(`Reusing published dependency ${gatewaySdkPackage.name}@${gatewaySdkPackage.version}\n`);
+  } else {
+    publishPackage("@wundercorp/openmodel-gateway-sdk", gatewaySdkPackage, configuration);
+  }
+
+  if (cliVersionExists) {
+    process.stdout.write(`Reusing published package ${cliPackage.name}@${cliPackage.version}\n`);
+  } else {
+    publishPackage("@wundercorp/openmodel", cliPackage, configuration);
+  }
 }
 
 main();

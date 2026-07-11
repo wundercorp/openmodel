@@ -1,6 +1,6 @@
 {
   "name": "@wundercorp/openmodel",
-  "version": "0.1.10",
+  "version": "0.1.12",
   "description": "Download, run, and serve local AI models through a gateway-first CLI with OpenAI- and Ollama-compatible APIs.",
   "type": "module",
   "bin": {
@@ -20,10 +20,10 @@
     "check": "find src bin -name '*.js' -o -name '*.mjs' | xargs -n 1 node --check",
     "test": "node --test",
     "build": "node --check bin/om.mjs",
-    "prepack": "node ../../scripts/validate-package-metadata.mjs ."
+    "prepack": "node ../../scripts/validate-package-metadata.mjs . && node ../../scripts/verify-cli-release.mjs"
   },
   "dependencies": {
-    "@wundercorp/openmodel-gateway-sdk": "0.1.0"
+    "@wundercorp/openmodel-gateway-sdk": "0.1.1"
   },
   "license": "Apache-2.0",
   "publishConfig": {

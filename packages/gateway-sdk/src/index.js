@@ -209,3 +209,102 @@ export function createInferenceResult(input) {
     raw: input.raw
   };
 }
+
+function finiteNonNegativeNumber(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? Math.max(0, numericValue) : 0;
+}
+
+function splitProviderModel(provider, model) {
+  const normalizedProvider = String(provider ?? '').trim().toLowerCase();
+  const normalizedModel = String(model ?? '').trim();
+  if (normalizedProvider || !normalizedModel.includes('/')) {
+    return {
+      provider: normalizedProvider,
+      model: normalizedModel
+    };
+  }
+  const separatorIndex = normalizedModel.indexOf('/');
+  return {
+    provider: normalizedModel.slice(0, separatorIndex).toLowerCase(),
+    model: normalizedModel.slice(separatorIndex + 1)
+  };
+}
+
+export function usageEventFromOpenRouterResponse(response, context = {}) {
+  if (!response || typeof response !== 'object') {
+    throw new GatewayContractError('OpenRouter response must be an object.');
+  }
+  const usage = response.usage && typeof response.usage === 'object' ? response.usage : {};
+  const promptDetails = usage.prompt_tokens_details && typeof usage.prompt_tokens_details === 'object'
+    ? usage.prompt_tokens_details
+    : {};
+  const completionDetails = usage.completion_tokens_details && typeof usage.completion_tokens_details === 'object'
+    ? usage.completion_tokens_details
+    : {};
+  const providerModel = splitProviderModel(context.provider, response.model ?? context.model);
+  return {
+    source: context.source ?? 'openrouter',
+    sourceVersion: context.sourceVersion,
+    sessionId: context.sessionId,
+    requestId: response.id ?? context.requestId,
+    provider: providerModel.provider,
+    model: providerModel.model,
+    region: context.region ?? 'global',
+    serviceTier: context.serviceTier ?? 'default',
+    status: context.status ?? 'success',
+    occurredAt: context.occurredAt ?? new Date().toISOString(),
+    durationMs: context.durationMs ?? 0,
+    usage: {
+      inputTokens: finiteNonNegativeNumber(usage.prompt_tokens),
+      outputTokens: finiteNonNegativeNumber(usage.completion_tokens),
+      totalTokens: finiteNonNegativeNumber(usage.total_tokens),
+      cachedInputTokens: finiteNonNegativeNumber(promptDetails.cached_tokens),
+      cacheWriteTokens: finiteNonNegativeNumber(promptDetails.cache_write_tokens),
+      reasoningTokens: finiteNonNegativeNumber(completionDetails.reasoning_tokens)
+    },
+    cost: {
+      amount: finiteNonNegativeNumber(usage.cost),
+      currency: context.currency ?? 'USD',
+      source: 'openrouter-response'
+    },
+    accuracy: 'exact',
+    metadata: {
+      generationId: response.id,
+      upstreamProvider: context.upstreamProvider
+    }
+  };
+}
+
+export function createUsageReporter(options = {}) {
+  const endpoint = String(options.endpoint ?? 'http://127.0.0.1:11435/v1/telemetry/events').replace(/\/$/, '');
+  const fetchImplementation = options.fetch ?? globalThis.fetch;
+  if (typeof fetchImplementation !== 'function') {
+    throw new GatewayContractError('Usage reporter requires a fetch implementation.');
+  }
+  return async function reportUsage(event) {
+    const response = await fetchImplementation(endpoint, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        ...(options.headers ?? {})
+      },
+      body: JSON.stringify({
+        event: {
+          ...event,
+          source: event?.source ?? options.source ?? 'gateway-sdk'
+        }
+      }),
+      signal: options.signal
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new GatewayContractError(
+        payload.error ?? `OpenModel telemetry endpoint returned HTTP ${response.status}.`,
+        { status: response.status, payload }
+      );
+    }
+    return payload.data ?? payload;
+  };
+}

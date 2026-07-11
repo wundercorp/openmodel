@@ -197,3 +197,44 @@ test('records chat completion token and latency metrics', async () => {
     await rm(temporaryHome, { recursive: true, force: true });
   }
 });
+
+test('accepts normalized external usage telemetry and exposes a session summary', async () => {
+  const temporaryHome = await mkdtemp(path.join(os.tmpdir(), 'openmodel-test-'));
+  const previousHome = process.env.OPENMODEL_HOME;
+  process.env.OPENMODEL_HOME = temporaryHome;
+  const server = await startLocalServer({ port: 0 });
+
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const ingestResponse = await fetch(`${baseUrl}/v1/telemetry/events`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        source: 'openrouter',
+        sessionId: 'session-1',
+        requestId: 'request-1',
+        model: 'openai/gpt-4o-mini',
+        usage: { inputTokens: 100, outputTokens: 20 },
+        cost: { amount: 0.0001, currency: 'USD' }
+      })
+    });
+    assert.equal(ingestResponse.status, 202);
+    const summaryResponse = await fetch(`${baseUrl}/v1/telemetry/summary`);
+    assert.equal(summaryResponse.status, 200);
+    const summaryPayload = await summaryResponse.json();
+    assert.equal(summaryPayload.data.requests.total, 1);
+    assert.equal(summaryPayload.data.usage.totalTokens, 120);
+    assert.equal(summaryPayload.data.sessions[0].source, 'openrouter');
+
+    const metricsResponse = await fetch(`${baseUrl}/v1/metrics`);
+    const metricsPayload = await metricsResponse.json();
+    assert.equal(metricsPayload.data.externalUsage.requests.total, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previousHome === undefined) delete process.env.OPENMODEL_HOME;
+    else process.env.OPENMODEL_HOME = previousHome;
+    await rm(temporaryHome, { recursive: true, force: true });
+  }
+});

@@ -15,7 +15,7 @@
     "build": "node --check src/index.js"
   },
   "dependencies": {
-    "@wundercorp/openmodel-gateway-sdk": "0.1.0"
+    "@wundercorp/openmodel-gateway-sdk": "0.1.1"
   },
   "license": "Apache-2.0"
 }

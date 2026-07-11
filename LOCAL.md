@@ -420,3 +420,7 @@ npm run deploy -- --plan-only
 ```
 
 The full deployment and npm release procedure is documented in `DEPLOY.md`.
+
+## Cloud agent telemetry
+
+Run `om setup` for the guided external-usage workflow. Keep `om serve --port 11435` running, then connect a tool with `om setup <integration>`. The easiest Claude Code path is `om setup claude-code --launch`. Codex prints a block to add to `~/.codex/config.toml`; OpenRouter and BuilderStudio print exact SDK reporting examples. Review events with `om telemetry summary`, view them under Metrics → External Usage, and publish them explicitly with `om telemetry sync`. Full setup examples are in `docs/session-telemetry.md`.

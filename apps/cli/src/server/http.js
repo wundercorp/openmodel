@@ -5,6 +5,8 @@ import { findManifest, listManifests } from '../lib/model-store.js';
 import { installModel } from '../lib/install-model.js';
 import { createLocalMetricsStore } from '../lib/metrics.js';
 import { getRuntimeStatus, RuntimeUnavailableError, selectRuntime } from '../runtimes/index.js';
+import { appendTelemetryEvents, readTelemetryEvents, readTelemetrySummary } from '../lib/telemetry.js';
+import { decodeOtlpLogs, telemetryEventsFromOtlpRecords } from '../lib/otlp-logs.js';
 
 const defaultAllowedBrowserOrigins = [
   'https://openmodel.sh',
@@ -61,6 +63,17 @@ function readAllowedOrigins(options) {
   return defaultAllowedBrowserOrigins;
 }
 
+function isLoopbackAddress(value) {
+  const normalizedValue = String(value ?? '').toLowerCase();
+  return normalizedValue === '127.0.0.1'
+    || normalizedValue === '::1'
+    || normalizedValue === '::ffff:127.0.0.1';
+}
+
+function isLocalProcessRequest(request) {
+  return !request.headers.origin && isLoopbackAddress(request.socket.remoteAddress);
+}
+
 function isTrustedBrowserRequest(request, options) {
   const requestOrigin = request.headers.origin;
   if (!requestOrigin) {
@@ -77,20 +90,42 @@ function sendJson(response, statusCode, value, corsHeaders) {
   response.end(`${JSON.stringify(value)}\n`);
 }
 
-async function readJsonBody(request) {
+async function readRequestBody(request, maximumBytes = 2 * 1024 * 1024) {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 2 * 1024 * 1024) {
+    if (size > maximumBytes) {
       throw new Error('Request body is too large.');
     }
     chunks.push(chunk);
   }
-  if (chunks.length === 0) {
+  return Buffer.concat(chunks);
+}
+
+async function readJsonBody(request) {
+  const body = await readRequestBody(request);
+  if (body.length === 0) {
     return {};
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  return JSON.parse(body.toString('utf8'));
+}
+
+function sendOtlpResponse(response, statusCode, contentType, corsHeaders) {
+  const normalizedContentType = String(contentType ?? '').toLowerCase();
+  if (normalizedContentType.includes('json')) {
+    response.writeHead(statusCode, {
+      ...corsHeaders,
+      'content-type': 'application/json; charset=utf-8'
+    });
+    response.end('{}\n');
+    return;
+  }
+  response.writeHead(statusCode, {
+    ...corsHeaders,
+    'content-type': 'application/x-protobuf'
+  });
+  response.end();
 }
 
 function messagesToPrompt(messages) {
@@ -319,7 +354,9 @@ export async function startLocalServer(options = {}) {
             'install-progress',
             'runtime-status',
             'chat-completions',
-            'metrics'
+            'metrics',
+            'external-usage-telemetry',
+            'otlp-logs'
           ]
         }, corsHeaders);
       }
@@ -329,22 +366,72 @@ export async function startLocalServer(options = {}) {
       }
       if (request.method === 'GET' && url.pathname === '/v1/metrics') {
         const manifests = await listManifests();
-        const [runtimeStatus, modelStorageBytes] = await Promise.all([
+        const [runtimeStatus, modelStorageBytes, externalUsage] = await Promise.all([
           readRuntimeStatus(manifests),
-          calculateModelStorageBytes(manifests)
+          calculateModelStorageBytes(manifests),
+          readTelemetrySummary({
+            since: url.searchParams.get('since') ?? undefined,
+            limit: 10000
+          })
         ]);
         return sendJson(response, 200, {
-          data: metricsStore.snapshot({
-            manifests,
-            runtimeStatus,
-            modelStorageBytes,
-            installJobs: [...installJobs.values()],
-            host,
-            port: server.address() && typeof server.address() === 'object'
-              ? server.address().port
-              : port
-          })
+          data: {
+            ...metricsStore.snapshot({
+              manifests,
+              runtimeStatus,
+              modelStorageBytes,
+              installJobs: [...installJobs.values()],
+              host,
+              port: server.address() && typeof server.address() === 'object'
+                ? server.address().port
+                : port
+            }),
+            externalUsage
+          }
         }, corsHeaders);
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/telemetry/events') {
+        const limit = Number(url.searchParams.get('limit') ?? 100);
+        const events = await readTelemetryEvents({
+          limit,
+          since: url.searchParams.get('since') ?? undefined,
+          until: url.searchParams.get('until') ?? undefined,
+          source: url.searchParams.get('source') ?? undefined,
+          sessionId: url.searchParams.get('sessionId') ?? undefined
+        });
+        return sendJson(response, 200, { data: events }, corsHeaders);
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/telemetry/summary') {
+        const summary = await readTelemetrySummary({
+          limit: Number(url.searchParams.get('limit') ?? 10000),
+          since: url.searchParams.get('since') ?? undefined,
+          until: url.searchParams.get('until') ?? undefined,
+          source: url.searchParams.get('source') ?? undefined,
+          sessionId: url.searchParams.get('sessionId') ?? undefined
+        });
+        return sendJson(response, 200, { data: summary }, corsHeaders);
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/telemetry/events') {
+        if (!isLocalProcessRequest(request) && !isTrustedBrowserRequest(request, options)) {
+          return sendJson(response, 403, { error: 'This request is not allowed to submit local telemetry.' }, corsHeaders);
+        }
+        const body = await readJsonBody(request);
+        const result = await appendTelemetryEvents(body.events ?? body.event ?? body);
+        return sendJson(response, 202, { data: result }, corsHeaders);
+      }
+      if (
+        request.method === 'POST'
+        && (url.pathname === '/v1/telemetry/otlp/v1/logs' || url.pathname === '/v1/logs')
+      ) {
+        if (!isLocalProcessRequest(request)) {
+          return sendJson(response, 403, { error: 'OTLP telemetry is accepted only from a local process.' }, corsHeaders);
+        }
+        const contentType = request.headers['content-type'] ?? 'application/x-protobuf';
+        const body = await readRequestBody(request, 8 * 1024 * 1024);
+        const records = decodeOtlpLogs(body, contentType);
+        const events = telemetryEventsFromOtlpRecords(records);
+        await appendTelemetryEvents(events);
+        return sendOtlpResponse(response, 200, contentType, corsHeaders);
       }
       if (request.method === 'POST' && url.pathname === '/v1/metrics/reset') {
         if (!isTrustedBrowserRequest(request, options)) {

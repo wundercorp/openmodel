@@ -229,3 +229,16 @@ OpenModel can only run formats supported by an installed runtime. The included l
 ## License
 
 Apache-2.0
+
+## Cloud agent session telemetry
+
+OpenModel can collect token and cost usage from Claude Code, Codex, OpenRouter, BuilderStudio, and other cloud-backed agents through OTLP logs or normalized local usage events. Collection stays local until `om telemetry sync` is run. See [Cloud Agent Session Telemetry](docs/session-telemetry.md).
+
+```bash
+om setup
+om serve --port 11435
+om setup claude-code --launch
+om telemetry summary
+om telemetry sync
+```
+
