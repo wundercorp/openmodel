@@ -177,7 +177,10 @@ commit_release() {
   git -C "$repository_root_directory" add \
     apps/cli/package.json \
     packages/gateway-sdk/package.json \
-    package-lock.json
+    package-lock.json \
+    docs.json \
+    doku.docs.json \
+    llms-full.txt
   git -C "$repository_root_directory" commit -m "Release OpenModel $cli_version" -m "Gateway SDK: $gateway_sdk_version"
 }
 
@@ -239,6 +242,8 @@ main() {
   fi
 
   node "$repository_root_directory/scripts/version-bump.mjs" "${bump_arguments[@]}"
+
+  npm --prefix "$repository_root_directory" run docs:update
 
   if [[ "$dry_run" == "true" ]]; then
     exit 0

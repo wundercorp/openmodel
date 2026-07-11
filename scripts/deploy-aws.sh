@@ -151,6 +151,7 @@ set_default_configuration() {
   OPENMODEL_WEB_AUTH_SCOPES="${OPENMODEL_WEB_AUTH_SCOPES:-openid profile email}"
   OPENMODEL_WEB_URL="${OPENMODEL_WEB_URL:-https://$OPENMODEL_WEB_HOSTNAME}"
   OPENMODEL_CLOUD_API_URL="${OPENMODEL_CLOUD_API_URL:-https://$OPENMODEL_API_HOSTNAME}"
+  OPENMODEL_WUNDERSHIP_API_URL="${OPENMODEL_WUNDERSHIP_API_URL:-https://api.wundership.com/openmodel/v1}"
   OPENMODEL_ALLOWED_ORIGINS="${OPENMODEL_ALLOWED_ORIGINS:-$OPENMODEL_WEB_URL}"
   OPENMODEL_CLOUDFRONT_PRICE_CLASS="${OPENMODEL_CLOUDFRONT_PRICE_CLASS:-PriceClass_100}"
   OPENMODEL_LOG_RETENTION_DAYS="${OPENMODEL_LOG_RETENTION_DAYS:-30}"
@@ -304,6 +305,7 @@ build_website() {
   VITE_AUTH_LOGOUT_URI="$OPENMODEL_WEB_URL" \
   VITE_AUTH_SCOPES="$OPENMODEL_WEB_AUTH_SCOPES" \
   VITE_API_URL="$OPENMODEL_CLOUD_API_URL" \
+  VITE_WUNDERSHIP_API_URL="$OPENMODEL_WUNDERSHIP_API_URL" \
   run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" run build --workspace @wundercorp/openmodel-web
 }
 
@@ -720,10 +722,13 @@ run_remote_deployment() {
 
 main() {
   parse_arguments "$@"
-  set_default_configuration
-  validate_configuration
   prepare_directories
   cd "$repository_root_directory"
+
+  validate_deployment_environment_file_security
+  load_deployment_environment
+  set_default_configuration
+  validate_configuration
 
   if [[ "$deployment_mode" == "validate" ]]; then
     run_source_validation
@@ -732,11 +737,7 @@ main() {
     return
   fi
 
-  validate_deployment_environment_file_security
   run_source_validation
-  load_deployment_environment
-  set_default_configuration
-  validate_configuration
   build_deployment_assets
   run_remote_deployment
 }

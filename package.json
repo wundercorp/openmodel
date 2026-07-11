@@ -9,7 +9,10 @@
     "gateways/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build:workspaces && npm run docs:update",
+    "build:workspaces": "npm run build --workspaces --if-present",
+    "docs:update": "doku gen && doku pack . --output doku.docs.json",
+    "docs:open": "doku open doku.docs.json --site https://doku.sh",
     "check": "npm run check --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "dev:web": "npm run dev --workspace @wundercorp/openmodel-web",

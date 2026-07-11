@@ -37,7 +37,7 @@ The app client ID is the generated Cognito identifier. It is not the app client 
 
 ## Production deployment values
 
-Create an ignored `.env.deploy` file from `.env.deploy.example` and set:
+Create an ignored `.env.deploy` file from `env.deploy.example` and set:
 
 ```text
 OPENMODEL_AUTH_ISSUER="https://cognito-idp.us-east-1.amazonaws.com/us-east-1_EXAMPLE"
@@ -46,6 +46,15 @@ OPENMODEL_WEB_AUTH_CLIENT_ID="replace-with-cognito-app-client-id"
 OPENMODEL_AUTH_AUDIENCE="replace-with-cognito-app-client-id"
 OPENMODEL_WEB_AUTH_SCOPES="openid profile email"
 ```
+
+Create the file with:
+
+```bash
+cp env.deploy.example .env.deploy
+chmod 600 .env.deploy
+```
+
+The deployment scripts load `.env.deploy` before validating these values, including for `--validate-only`.
 
 `OPENMODEL_AUTH_AUDIENCE` intentionally contains the Cognito app client ID. Cognito access tokens identify the app client in the `client_id` claim, while ID tokens identify it in `aud`.
 

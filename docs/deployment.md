@@ -64,6 +64,7 @@ VITE_AUTH_REDIRECT_URI=https://openmodel.sh/auth/callback
 VITE_AUTH_LOGOUT_URI=https://openmodel.sh
 VITE_AUTH_SCOPES=openid profile email
 VITE_API_URL=https://api.openmodel.sh
+VITE_WUNDERSHIP_API_URL=https://api.wundership.com/openmodel/v1
 ```
 
 These are public browser configuration values. Never place secrets in `VITE_*` variables. The Cognito web app client must not have a client secret.

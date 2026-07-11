@@ -77,7 +77,7 @@ The local server supports:
 - `GET /api/tags`
 - `POST /api/generate`
 
-The authenticated web dashboard uses the catalog and install-job endpoints for a one-click starter-model download with local progress reporting. It also includes a local-only metrics page for request counts, estimated token usage, latency, throughput, runtime activity, and per-model usage. Installation and metrics-reset requests are restricted to configured browser origins.
+The web dashboard uses the catalog and install-job endpoints for a one-click starter-model download with local progress reporting. Its Metrics route remains usable without authentication for local request counts, estimated token usage, latency, throughput, runtime activity, per-model usage, and recent requests. Authenticated sessions also load the Wundership monthly allowance, provider/model pricing estimates, local-versus-cloud cost comparisons, usage and cost charts, and idempotent usage synchronization. Installation and metrics-reset requests remain restricted to configured browser origins.
 
 ## Gateway interoperability
 

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Card, CodeBlock } from "./components/ui";
+import { UsagePricingDashboard } from "./components/UsagePricingDashboard";
+import { PublicLocalMetricsPage } from "./components/PublicLocalMetricsPage";
 import {
   beginLogin,
   completeLogin,
@@ -30,6 +32,7 @@ import {
   type LocalRuntimeStatus,
   type ModelInstallJob,
 } from "./lib/api";
+import { formatCompactNumber } from "./lib/format";
 
 type Theme = "dark" | "light";
 type Accent = "orange" | "green" | "blue" | "fuchsia";
@@ -45,6 +48,7 @@ type DashboardRoute =
   | "account";
 
 type DashboardResourceTab = "builderstudio" | "doku";
+type DashboardMetricsTab = "overview" | "performance" | "pricing" | "cloud";
 
 interface CloudSessionMetrics {
   syncAttempts: number;
@@ -101,6 +105,14 @@ function readDashboardResourceTab(): DashboardResourceTab {
   return searchParams.get("tool") === "doku" ? "doku" : "builderstudio";
 }
 
+function readDashboardMetricsTab(): DashboardMetricsTab {
+  const tab = new URLSearchParams(window.location.search).get("tab");
+  if (tab === "performance" || tab === "pricing" || tab === "cloud") {
+    return tab;
+  }
+  return "overview";
+}
+
 function readDashboardCache() {
   const storedValue = sessionStorage.getItem(dashboardCacheKey);
   if (!storedValue) {
@@ -135,12 +147,7 @@ function formatBytes(value: number | undefined) {
 
 
 function formatMetricNumber(value: number | undefined) {
-  if (!Number.isFinite(value)) {
-    return "0";
-  }
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(
-    value ?? 0,
-  );
+  return formatCompactNumber(value, 1);
 }
 
 function formatDuration(milliseconds: number | undefined) {
@@ -716,6 +723,8 @@ function DashboardPage({
   );
   const [activeResourceTab, setActiveResourceTab] =
     useState<DashboardResourceTab>(() => readDashboardResourceTab());
+  const [activeMetricsTab, setActiveMetricsTab] =
+    useState<DashboardMetricsTab>(() => readDashboardMetricsTab());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem(dashboardSidebarCollapsedStorageKey) === "true",
   );
@@ -802,6 +811,9 @@ function DashboardPage({
     if (route === "resources") {
       setActiveResourceTab("builderstudio");
     }
+    if (route === "metrics") {
+      setActiveMetricsTab("overview");
+    }
     setProfileMenuOpen(false);
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
@@ -819,6 +831,19 @@ function DashboardPage({
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
 
+  const navigateMetricsTab = useCallback((tab: DashboardMetricsTab) => {
+    const nextUrl = `/dashboard?view=metrics&tab=${tab}`;
+    window.history.pushState(
+      { dashboardRoute: "metrics", dashboardMetricsTab: tab },
+      "",
+      nextUrl,
+    );
+    setActiveRoute("metrics");
+    setActiveMetricsTab(tab);
+    setProfileMenuOpen(false);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
   const navigateHome = useCallback(() => {
     window.location.assign("/");
   }, []);
@@ -827,6 +852,7 @@ function DashboardPage({
     const handlePopState = () => {
       setActiveRoute(readDashboardRoute());
       setActiveResourceTab(readDashboardResourceTab());
+      setActiveMetricsTab(readDashboardMetricsTab());
       window.scrollTo({ top: 0, behavior: "auto" });
     };
 
@@ -1464,6 +1490,26 @@ function DashboardPage({
     }, 1600);
   }, []);
 
+  if (!session && activeRoute === "metrics") {
+    return (
+      <PublicLocalMetricsPage
+        localApiInput={localApiInput}
+        localApiState={localApiState}
+        localApiError={localApiError}
+        localMetrics={localMetrics}
+        localMetricsError={localMetricsError}
+        localMetricsLoading={localMetricsLoading}
+        localMetricsResetting={localMetricsResetting}
+        onLocalApiInputChange={setLocalApiInput}
+        onConnect={() => void loadLocalModelRegistry(localApiInput)}
+        onRefresh={() => void loadLocalMetricsSnapshot(true)}
+        onReset={() => void clearLocalMetrics()}
+        onSignIn={onSignIn}
+        onHome={navigateHome}
+      />
+    );
+  }
+
   if (!session) {
     const configurationError = getAuthConfigurationError();
     return (
@@ -1497,7 +1543,10 @@ function DashboardPage({
             ) : null}
             <div className="hero-actions">
               <Button onClick={onSignIn}>SIGN IN WITH COGNITO</Button>
-              <Button variant="outline" onClick={navigateHome}>
+              <Button variant="outline" onClick={() => navigateDashboard("metrics")}>
+                VIEW LOCAL METRICS
+              </Button>
+              <Button variant="ghost" onClick={navigateHome}>
                 RETURN HOME
               </Button>
             </div>
@@ -2876,29 +2925,89 @@ ${dokuGenerateCommand}`,
                     throughput, model activity, and browser-to-cloud control-plane health.
                   </p>
                 </div>
-                <div className="dashboard-page-actions">
-                  <Button
-                    variant="outline"
-                    disabled={!localApiConnected || localMetricsLoading}
-                    onClick={() => void loadLocalMetricsSnapshot(true)}
-                  >
-                    {localMetricsLoading ? "SYNCING" : "REFRESH METRICS"}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    disabled={
-                      !localApiConnected ||
-                      !localMetrics ||
-                      localMetricsResetting ||
-                      (localInferenceMetrics?.activeRequests ?? 0) > 0
-                    }
-                    onClick={() => void clearLocalMetrics()}
-                  >
-                    {localMetricsResetting ? "RESETTING" : "RESET LOCAL"}
-                  </Button>
-                </div>
+                {activeMetricsTab === "overview" || activeMetricsTab === "performance" ? (
+                  <div className="dashboard-page-actions">
+                    <Button
+                      variant="outline"
+                      disabled={!localApiConnected || localMetricsLoading}
+                      onClick={() => void loadLocalMetricsSnapshot(true)}
+                    >
+                      {localMetricsLoading ? "SYNCING" : "REFRESH METRICS"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={
+                        !localApiConnected ||
+                        !localMetrics ||
+                        localMetricsResetting ||
+                        (localInferenceMetrics?.activeRequests ?? 0) > 0
+                      }
+                      onClick={() => void clearLocalMetrics()}
+                    >
+                      {localMetricsResetting ? "RESETTING" : "RESET LOCAL"}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
 
+              <div className="dashboard-metrics-tabs" role="tablist" aria-label="Metrics sections">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeMetricsTab === "overview"}
+                  aria-controls="metrics-overview-panel"
+                  className={activeMetricsTab === "overview" ? "is-active" : ""}
+                  onClick={() => navigateMetricsTab("overview")}
+                >
+                  <span>01</span>
+                  <strong>OVERVIEW</strong>
+                  <small>Health and totals</small>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeMetricsTab === "performance"}
+                  aria-controls="metrics-performance-panel"
+                  className={activeMetricsTab === "performance" ? "is-active" : ""}
+                  onClick={() => navigateMetricsTab("performance")}
+                >
+                  <span>02</span>
+                  <strong>PERFORMANCE</strong>
+                  <small>Latency and requests</small>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeMetricsTab === "pricing"}
+                  aria-controls="metrics-pricing-panel"
+                  className={activeMetricsTab === "pricing" ? "is-active" : ""}
+                  onClick={() => navigateMetricsTab("pricing")}
+                >
+                  <span>03</span>
+                  <strong>USAGE &amp; PRICING</strong>
+                  <small>Allowance and cost</small>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeMetricsTab === "cloud"}
+                  aria-controls="metrics-cloud-panel"
+                  className={activeMetricsTab === "cloud" ? "is-active" : ""}
+                  onClick={() => navigateMetricsTab("cloud")}
+                >
+                  <span>04</span>
+                  <strong>CLOUD &amp; SYNC</strong>
+                  <small>Session health</small>
+                </button>
+              </div>
+
+              {activeMetricsTab === "overview" ? (
+                <div
+                  id="metrics-overview-panel"
+                  className="dashboard-metrics-tab-panel"
+                  role="tabpanel"
+                  aria-label="Metrics overview"
+                >
               <Card className="dashboard-metrics-privacy">
                 <span className="dashboard-metrics-privacy-mark">LOCAL_ONLY</span>
                 <div>
@@ -2912,7 +3021,7 @@ ${dokuGenerateCommand}`,
                 </div>
               </Card>
 
-              {!localApiConnected ? (
+                  {!localApiConnected ? (
                 <Card className="dashboard-metrics-connect-panel">
                   <div>
                     <span className="dashboard-panel-kicker">LOCAL SERVICE REQUIRED</span>
@@ -2944,7 +3053,7 @@ ${dokuGenerateCommand}`,
                     <p className="dashboard-local-api-error">{localApiError}</p>
                   ) : null}
                 </Card>
-              ) : localMetricsError && !localMetrics ? (
+                  ) : localMetricsError && !localMetrics ? (
                 <Card className="dashboard-metrics-connect-panel dashboard-metrics-error-panel">
                   <div>
                     <span className="dashboard-panel-kicker">METRICS UNAVAILABLE</span>
@@ -2964,8 +3073,8 @@ ${dokuGenerateCommand}`,
                     }
                   />
                 </Card>
-              ) : (
-                <>
+                  ) : (
+                    <>
                   {localMetricsError ? (
                     <div className="authentication-notice authentication-notice-error dashboard-notice">
                       <span>METRICS_WARNING</span>
@@ -2978,7 +3087,6 @@ ${dokuGenerateCommand}`,
                       </button>
                     </div>
                   ) : null}
-
                   <div className="dashboard-metrics-grid">
                     <Card className="dashboard-metric-card">
                       <span>TOTAL TOKENS</span>
@@ -3043,7 +3151,66 @@ ${dokuGenerateCommand}`,
                       </small>
                     </Card>
                   </div>
+                    </>
+                  )}
+                </div>
+              ) : null}
 
+              {activeMetricsTab === "performance" ? (
+                <div
+                  id="metrics-performance-panel"
+                  className="dashboard-metrics-tab-panel"
+                  role="tabpanel"
+                  aria-label="Local inference performance"
+                >
+                  {!localApiConnected ? (
+                    <Card className="dashboard-metrics-connect-panel">
+                      <div>
+                        <span className="dashboard-panel-kicker">LOCAL SERVICE REQUIRED</span>
+                        <h3>CONNECT BEFORE VIEWING PERFORMANCE</h3>
+                        <p>
+                          Connect to <code>om serve</code> from Overview to load latency,
+                          throughput, request history, and per-model activity.
+                        </p>
+                      </div>
+                      <Button onClick={() => navigateMetricsTab("overview")}>
+                        OPEN OVERVIEW
+                      </Button>
+                    </Card>
+                  ) : localMetricsError && !localMetrics ? (
+                <Card className="dashboard-metrics-connect-panel dashboard-metrics-error-panel">
+                  <div>
+                    <span className="dashboard-panel-kicker">METRICS UNAVAILABLE</span>
+                    <h3>UPDATE THE LOCAL OPENMODEL CLI</h3>
+                    <p>{localMetricsError}</p>
+                  </div>
+                  <DashboardCommand
+                    index="$"
+                    title="UPDATE OPENMODEL"
+                    command="npm install -g @wundercorp/openmodel@latest"
+                    copied={copiedCommand === "metrics-update-cli"}
+                    onCopy={() =>
+                      void copyCommand(
+                        "metrics-update-cli",
+                        "npm install -g @wundercorp/openmodel@latest",
+                      )
+                    }
+                  />
+                </Card>
+                  ) : (
+                    <>
+                  {localMetricsError ? (
+                    <div className="authentication-notice authentication-notice-error dashboard-notice">
+                      <span>METRICS_WARNING</span>
+                      <strong>{localMetricsError}</strong>
+                      <button
+                        type="button"
+                        onClick={() => void loadLocalMetricsSnapshot(true)}
+                      >
+                        RETRY
+                      </button>
+                    </div>
+                  ) : null}
                   <div className="dashboard-metrics-split">
                     <Card className="dashboard-metrics-panel">
                       <div className="dashboard-panel-heading">
@@ -3218,9 +3385,33 @@ ${dokuGenerateCommand}`,
                       ))
                     )}
                   </Card>
-                </>
-              )}
+                    </>
+                  )}
+                </div>
+              ) : null}
 
+              {activeMetricsTab === "pricing" ? (
+                <div
+                  id="metrics-pricing-panel"
+                  className="dashboard-metrics-tab-panel"
+                  role="tabpanel"
+                  aria-label="Usage and pricing"
+                >
+              <UsagePricingDashboard
+                authenticated={Boolean(sessionAccessToken)}
+                localMetrics={localMetrics}
+                onSignIn={onSignIn}
+              />
+                </div>
+              ) : null}
+
+              {activeMetricsTab === "cloud" ? (
+                <div
+                  id="metrics-cloud-panel"
+                  className="dashboard-metrics-tab-panel"
+                  role="tabpanel"
+                  aria-label="Cloud and synchronization health"
+                >
               <div className="dashboard-metrics-cloud-heading">
                 <div>
                   <span className="dashboard-panel-kicker">CLOUD CONTROL PLANE</span>
@@ -3275,6 +3466,8 @@ ${dokuGenerateCommand}`,
                   <small>COGNITO ACCESS TOKEN</small>
                 </Card>
               </div>
+                </div>
+              ) : null}
             </section>
           ) : null}
 

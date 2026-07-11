@@ -187,6 +187,103 @@ export interface LocalMetricsSnapshot {
   recentRequests: LocalInferenceRecentRequest[];
 }
 
+
+export interface WundershipTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+}
+
+export interface WundershipPricingCatalogEntry {
+  provider: string;
+  model: string;
+  matchType: string;
+  region: string;
+  serviceTier: string;
+  inputPerMillion: number;
+  outputPerMillion: number;
+  cachedInputPerMillion: number;
+  cacheWritePerMillion: number;
+  reasoningPerMillion: number;
+  currency: string;
+  pricingVersion: string;
+  effectiveFrom: string;
+  effectiveTo?: string;
+}
+
+export interface WundershipPricingCatalogResponse {
+  generatedAt: string;
+  entries: WundershipPricingCatalogEntry[];
+}
+
+export interface WundershipPricingEstimateRequest {
+  provider: string;
+  model: string;
+  region?: string;
+  serviceTier?: string;
+  usage: WundershipTokenUsage;
+  occurredAt?: string;
+}
+
+export interface WundershipPricingEstimateResponse {
+  provider: string;
+  model: string;
+  region: string;
+  serviceTier: string;
+  usage: WundershipTokenUsage;
+  estimatedCost: number;
+  currency: string;
+  pricingVersion: string;
+  status: string;
+  monthlyFreeTokenCap: number;
+  monthlyTokensBefore: number;
+  monthlyTokensAfter: number;
+  monthlyAllowanceUnitsBefore?: number;
+  monthlyAllowanceUnitsAfter?: number;
+  remainingAllowanceUnits?: number;
+  requestAllowanceUnits?: number;
+  allowanceMultiplier?: number;
+  effectiveFreeTokenCap?: number;
+  freeAllowanceBudget?: number;
+  allowancePolicy?: string;
+  billableTokens: number;
+  billableCost: number;
+}
+
+export interface WundershipUsageSummary {
+  periodStart: string;
+  periodEnd: string;
+  freeTokenCap: number;
+  tokens: number;
+  rawTokens?: number;
+  allowanceUnits?: number;
+  remainingFreeTokens: number;
+  remainingAllowanceUnits?: number;
+  meteringActive: boolean;
+  estimatedProviderCost?: number;
+  billableCost: number;
+  freeAllowanceBudget?: number;
+  referenceCostPerMillion?: number;
+  allowancePolicy?: string;
+  currency: string;
+}
+
+export interface WundershipUsageEvent extends WundershipPricingEstimateRequest {
+  schemaVersion: number;
+  idempotencyKey: string;
+  source: string;
+}
+
+export interface WundershipUsageEventsResponse {
+  accepted?: number;
+  created?: number;
+  duplicates?: number;
+  events?: unknown[];
+  [key: string]: unknown;
+}
+
 export interface GatewayRecord {
   id: string;
   name: string;
@@ -202,6 +299,13 @@ const apiBaseUrl = String(
   import.meta.env.VITE_API_URL ??
     import.meta.env.VITE_CLOUD_API_URL ??
     "https://api.openmodel.sh",
+)
+  .trim()
+  .replace(/\/$/, "");
+
+const wundershipApiBaseUrl = String(
+  import.meta.env.VITE_WUNDERSHIP_API_URL ??
+    "https://api.wundership.com/openmodel/v1",
 )
   .trim()
   .replace(/\/$/, "");
@@ -228,6 +332,65 @@ function normalizeLocalApiUrl(localApiUrl: string) {
 
 export function getApiBaseUrl() {
   return apiBaseUrl;
+}
+
+export function getWundershipApiBaseUrl() {
+  return wundershipApiBaseUrl;
+}
+
+export async function getWundershipPricingCatalog(signal?: AbortSignal) {
+  const response = await authenticatedFetch(`${wundershipApiBaseUrl}/pricing/catalog`, {
+    headers: { accept: "application/json" },
+    cache: "no-store",
+    signal,
+  });
+  return readJsonResponse<WundershipPricingCatalogResponse>(response);
+}
+
+export async function getWundershipUsageSummary(signal?: AbortSignal) {
+  const response = await authenticatedFetch(`${wundershipApiBaseUrl}/usage/summary`, {
+    headers: { accept: "application/json" },
+    cache: "no-store",
+    signal,
+  });
+  return readJsonResponse<WundershipUsageSummary>(response);
+}
+
+export async function estimateWundershipCloudCost(
+  request: WundershipPricingEstimateRequest,
+  signal?: AbortSignal,
+) {
+  const response = await authenticatedFetch(
+    `${wundershipApiBaseUrl}/pricing/estimate`,
+    {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+      cache: "no-store",
+      signal,
+    },
+  );
+  return readJsonResponse<WundershipPricingEstimateResponse>(response);
+}
+
+export async function submitWundershipUsageEvents(
+  events: WundershipUsageEvent[],
+  signal?: AbortSignal,
+) {
+  const response = await authenticatedFetch(`${wundershipApiBaseUrl}/usage/events`, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ events }),
+    cache: "no-store",
+    signal,
+  });
+  return readJsonResponse<WundershipUsageEventsResponse>(response);
 }
 
 export async function getDashboardUser(signal?: AbortSignal) {

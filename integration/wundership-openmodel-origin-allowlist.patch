@@ -1,0 +1,11 @@
+--- a/main/java/com/wundership/ecommerce/infrastructure/security/AllowedOriginSupport.java
++++ b/main/java/com/wundership/ecommerce/infrastructure/security/AllowedOriginSupport.java
+@@ -7,7 +7,7 @@
+ 
+ public final class AllowedOriginSupport {
+ 
+-    public static final String DEFAULT_ALLOWED_ORIGINS_VALUE = "http://localhost:4000,https://startup.you,https://loops.you,https://ship.you,https://launch.you,https://open.you";
++    public static final String DEFAULT_ALLOWED_ORIGINS_VALUE = "http://localhost:4000,http://localhost:5173,https://startup.you,https://loops.you,https://ship.you,https://launch.you,https://open.you,https://openmodel.sh,https://www.openmodel.sh";
+ 
+     private AllowedOriginSupport() {
+     }

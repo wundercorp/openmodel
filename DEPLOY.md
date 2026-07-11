@@ -65,6 +65,7 @@ OPENMODEL_AWS_ACCOUNT_ID="<YOUR_AWS_ACCOUNT_ID>"
 OPENMODEL_ROUTE53_ZONE_ID="<YOUR_ROUTE53_HOSTED_ZONE_ID>"
 OPENMODEL_ROUTE53_ZONE_NAME="openmodel.sh"
 OPENMODEL_ROUTE53_EXPECTED_NAME_SERVERS="<ROUTE53_NAME_SERVER_1>,<ROUTE53_NAME_SERVER_2>,<ROUTE53_NAME_SERVER_3>,<ROUTE53_NAME_SERVER_4>"
+OPENMODEL_WUNDERSHIP_API_URL="https://api.wundership.com/api/openmodel/v1"
 ```
 
 Keep account IDs, hosted-zone IDs, state-bucket names, delegation sets, and tokens only in the ignored `.env.deploy` or protected CI settings. The deploy script verifies configured targets before changing resources. The account ID can be discovered from the active AWS identity, and the hosted-zone ID can be discovered from the zone name when omitted.

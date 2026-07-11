@@ -3,7 +3,7 @@ import { readJson } from './json-store.js';
 
 function settings() {
   return {
-    baseUrl: (process.env.OPENMODEL_PRICING_API_URL ?? 'https://api.wundership.com/api/openmodel/v1').replace(/\/$/, ''),
+    baseUrl: (process.env.OPENMODEL_PRICING_API_URL ?? 'https://api.wundership.com/openmodel/v1').replace(/\/$/, ''),
     timeoutMs: Math.max(1000, Number(process.env.OPENMODEL_PRICING_TIMEOUT_MS ?? 10000))
   };
 }

@@ -149,6 +149,7 @@ set_default_configuration() {
   OPENMODEL_WEB_AUTH_SCOPES="${OPENMODEL_WEB_AUTH_SCOPES:-openid profile email}"
   OPENMODEL_WEB_URL="${OPENMODEL_WEB_URL:-https://$OPENMODEL_WEB_HOSTNAME}"
   OPENMODEL_CLOUD_API_URL="${OPENMODEL_CLOUD_API_URL:-https://$OPENMODEL_API_HOSTNAME}"
+  OPENMODEL_WUNDERSHIP_API_URL="${OPENMODEL_WUNDERSHIP_API_URL:-https://api.wundership.com/openmodel/v1}"
   OPENMODEL_ALLOWED_ORIGINS="${OPENMODEL_ALLOWED_ORIGINS:-$OPENMODEL_WEB_URL}"
   OPENMODEL_SKIP_HEALTHCHECK="${OPENMODEL_SKIP_HEALTHCHECK:-0}"
   NPM_DIST_TAG="${NPM_DIST_TAG:-latest}"
@@ -266,6 +267,7 @@ run_source_validation() {
   VITE_AUTH_LOGOUT_URI="$OPENMODEL_WEB_URL" \
   VITE_AUTH_SCOPES="$OPENMODEL_WEB_AUTH_SCOPES" \
   VITE_API_URL="$OPENMODEL_CLOUD_API_URL" \
+  VITE_WUNDERSHIP_API_URL="$OPENMODEL_WUNDERSHIP_API_URL" \
   run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" run build
 }
 
@@ -424,6 +426,7 @@ build_and_deploy_website() {
   VITE_AUTH_LOGOUT_URI="$OPENMODEL_WEB_URL" \
   VITE_AUTH_SCOPES="$OPENMODEL_WEB_AUTH_SCOPES" \
   VITE_API_URL="$OPENMODEL_CLOUD_API_URL" \
+  VITE_WUNDERSHIP_API_URL="$OPENMODEL_WUNDERSHIP_API_URL" \
   run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" run build --workspace @wundercorp/openmodel-web
 
   log_message "Deploying the website to Cloudflare Pages"
@@ -616,21 +619,20 @@ run_remote_deployment() {
 
 main() {
   parse_arguments "$@"
-  set_default_configuration
-  validate_boolean_configuration
   prepare_directories
   cd "$repository_root_directory"
+
+  validate_deployment_environment_file_security
+  load_deployment_environment
+  set_default_configuration
+  validate_boolean_configuration
 
   if [[ "$deployment_mode" == "validate" ]]; then
     run_validate_only
     return
   fi
 
-  validate_deployment_environment_file_security
   run_source_validation
-  load_deployment_environment
-  set_default_configuration
-  validate_boolean_configuration
   run_remote_deployment
 }
 
