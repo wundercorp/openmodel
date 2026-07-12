@@ -2,6 +2,10 @@
 
 OpenModel includes a workspace-aware semantic version incrementer and a one-shot npm release command.
 
+## Automatic versions during deployment
+
+`./deploy.sh --publish-npm --yes` runs `npm run release:prepare` before publication. The preparation step checks npm and compares packed contents. If a selected version already exists with different contents, it automatically applies patch increments until it finds an unpublished version. Existing identical packages are reused. Manual `version:bump` commands remain available for intentional minor, major, or prerelease releases.
+
 ## Version rules
 
 The default target is the CLI package:
@@ -58,7 +62,7 @@ The command:
 3. Runs checks, tests, and npm publication dry runs.
 4. Commits the release files.
 5. Pushes the release commit when requested.
-6. Publishes only npm versions that do not already exist.
+6. Publishes missing npm versions and verifies that reused versions have identical packed contents.
 7. Creates and pushes `v<CLI version>` when requested.
 
 The npm login must already be configured:
@@ -100,7 +104,7 @@ A stable version such as `0.2.0` becomes `0.2.1-beta.0`. Repeating the command i
 
 ## GitHub tag publication
 
-Pushing a tag such as `v0.1.2` starts `.github/workflows/release-npm.yml`. The workflow verifies that the tag matches the CLI package version and skips package versions that already exist. This makes a tag pushed after a local publication safe and idempotent.
+Pushing a tag such as `v0.1.2` starts `.github/workflows/release-npm.yml`. The workflow verifies that the tag matches the CLI package version. Existing versions are reused only when their published tarball contents match the local package, making a tag pushed after a local publication safe and idempotent without hiding an unbumped code change.
 
 To let GitHub perform the npm publication instead of publishing locally:
 

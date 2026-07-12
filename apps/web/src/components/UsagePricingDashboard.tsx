@@ -910,7 +910,7 @@ export function UsagePricingDashboard({
       <div className="dashboard-metrics-cloud-heading dashboard-pricing-heading">
         <div>
           <span className="dashboard-panel-kicker">WUNDERSHIP PRICING ENGINE</span>
-          <h3>USAGE &amp; PRICING</h3>
+          <h3>Usage &amp; pricing</h3>
           <p>
             Compare local inference with provider pricing, review the monthly free allowance,
             and synchronize selected local usage events after authentication.
@@ -937,7 +937,7 @@ export function UsagePricingDashboard({
         <Card className="dashboard-pricing-auth-card">
           <div>
             <span className="dashboard-panel-kicker">LOCAL METRICS REMAIN AVAILABLE</span>
-            <h3>SIGN IN FOR WUNDERSHIP PRICING</h3>
+            <h3>Sign in for Wundership pricing</h3>
             <p>
               Local token, latency, throughput, and request charts continue to work offline.
               Authentication is required only for pricing estimates, allowance totals, and usage synchronization.
@@ -975,7 +975,7 @@ export function UsagePricingDashboard({
         <div className="dashboard-panel-heading">
           <div>
             <span className="dashboard-panel-kicker">PROVIDER PROFILE</span>
-            <h3>PRICING LOOKUP</h3>
+            <h3>Pricing lookup</h3>
           </div>
           <div className="dashboard-pricing-catalog-status">
             <code>{getWundershipApiBaseUrl()}</code>
@@ -1145,7 +1145,7 @@ export function UsagePricingDashboard({
           <div className="dashboard-panel-heading dashboard-pricing-chart-heading">
             <div>
               <span className="dashboard-panel-kicker">USAGE OVER TIME</span>
-              <h3>CUMULATIVE TOKENS &amp; COST</h3>
+              <h3>Cumulative tokens &amp; cost</h3>
             </div>
             <div className="dashboard-pricing-chart-controls">
               <span>{timelineWindowLabel(timelineRange, localMetrics?.generatedAt)}</span>
@@ -1170,7 +1170,7 @@ export function UsagePricingDashboard({
           <div className="dashboard-panel-heading">
             <div>
               <span className="dashboard-panel-kicker">RANGE PROFILE</span>
-              <h3>TOKENS &amp; CLOUD COST</h3>
+              <h3>Tokens &amp; cloud cost</h3>
             </div>
           </div>
           <UsageBarChart points={timelinePoints} currency={currency} range={timelineRange} />
@@ -1180,7 +1180,7 @@ export function UsagePricingDashboard({
       <Card className="dashboard-pricing-sync-card">
         <div>
           <span className="dashboard-panel-kicker">WUNDERSHIP-SYNCHRONIZED USAGE</span>
-          <h3>SYNC SUCCESSFUL LOCAL REQUESTS</h3>
+          <h3>Sync successful local requests</h3>
           <p>
             Sends token counts, timestamps, provider/model mapping, and an idempotency key.
             Prompt text, response text, model weights, latency, and local runtime details stay local.

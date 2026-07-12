@@ -30,9 +30,10 @@
     "deploy:cloudflare": "bash scripts/deploy.sh --provider cloudflare",
     "version:bump": "node scripts/version-bump.mjs",
     "release:auto": "bash scripts/release.sh",
-    "release:publish": "node scripts/publish-npm.mjs",
+    "release:publish": "node scripts/prepare-npm-release.mjs && node scripts/publish-npm.mjs",
     "release:verify-cli": "node scripts/verify-cli-release.mjs",
-    "lockfile:refresh": "npm install --package-lock-only --ignore-scripts --registry=https://registry.npmjs.org/ --no-audit --no-fund && node scripts/validate-package-lock-registry.mjs"
+    "lockfile:refresh": "npm install --package-lock-only --ignore-scripts --registry=https://registry.npmjs.org/ --no-audit --no-fund && node scripts/validate-package-lock-registry.mjs",
+    "release:prepare": "node scripts/prepare-npm-release.mjs"
   },
   "engines": {
     "node": ">=20.19.0"
@@ -42,6 +43,7 @@
     "typescript": "7.0.2"
   },
   "dependencies": {
+    "@wundercorp/baseui": "^0.1.0",
     "@wundercorp/doku": "^0.1.31"
   }
 }

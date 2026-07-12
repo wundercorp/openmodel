@@ -122,6 +122,18 @@ test('normalizes telemetry without retaining prompt or response content', () => 
   assert.equal(event.metadata.privateField, undefined);
 });
 
+test('normalizes provider-prefixed models even when provider is explicit', () => {
+  const event = normalizeTelemetryEvent({
+    source: 'wundercorp-bs',
+    provider: 'openai',
+    model: 'openai/gpt-5.5-20260423',
+    usage: { inputTokens: 10, outputTokens: 2 }
+  });
+
+  assert.equal(event.provider, 'openai');
+  assert.equal(event.model, 'gpt-5.5-20260423');
+});
+
 test('persists, deduplicates, summarizes, and converts telemetry events', async () => {
   const temporaryHome = await mkdtemp(path.join(os.tmpdir(), 'openmodel-telemetry-test-'));
   const previousHome = process.env.OPENMODEL_HOME;

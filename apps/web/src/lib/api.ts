@@ -162,6 +162,37 @@ export interface ExternalUsageSessionSummary {
   lastEventAt: string;
 }
 
+export interface ExternalUsageEvent {
+  schemaVersion: number;
+  idempotencyKey: string;
+  source: string;
+  sourceVersion?: string;
+  sessionId: string;
+  requestId: string;
+  provider: string;
+  model: string;
+  region?: string;
+  serviceTier?: string;
+  status: "success" | "error" | "cancelled";
+  occurredAt: string;
+  durationMs: number;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens: number;
+    cacheWriteTokens: number;
+    reasoningTokens: number;
+    totalTokens: number;
+  };
+  cost: {
+    amount: number;
+    currency: string;
+    source?: string;
+  };
+  accuracy?: "exact" | "estimated" | "reconciled" | string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ExternalUsageSummary {
   generatedAt: string;
   scope: "local-external";
@@ -191,6 +222,7 @@ export interface ExternalUsageSummary {
   sessions: ExternalUsageSessionSummary[];
   bySource: ExternalUsageSourceSummary[];
   byModel: ExternalUsageModelSummary[];
+  recentEvents?: ExternalUsageEvent[];
 }
 
 export interface LocalMetricsSnapshot {

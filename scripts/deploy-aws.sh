@@ -17,6 +17,7 @@ automatically_approve_terraform="false"
 npm_publication_authentication_configured="false"
 publish_gateway_sdk_package="false"
 publish_cli_package="false"
+npm_release_versions_prepared="false"
 
 print_usage() {
   cat <<'USAGE'
@@ -332,6 +333,7 @@ run_source_validation() {
   run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" run check
   log_message "Running tests"
   run_npm_without_deployment_secrets npm --prefix "$repository_root_directory" test
+  prepare_npm_release
 }
 
 build_deployment_assets() {
@@ -589,7 +591,20 @@ package_version_exists() {
   npm view "$package_name@$package_version" version --registry "$npm_public_registry_url" >/dev/null 2>&1
 }
 
+published_package_matches_workspace() {
+  local workspace_name="$1"
+  node "$repository_root_directory/scripts/verify-published-package-contents.mjs" \
+    --workspace "$workspace_name" \
+    --registry "$npm_public_registry_url"
+}
+
 validate_npm_release_versions() {
+  if [[ "$npm_release_versions_prepared" != "true" ]]; then
+    log_message "Preparing npm release versions"
+    node "$repository_root_directory/scripts/prepare-npm-release.mjs" --registry "$npm_public_registry_url"
+    npm_release_versions_prepared="true"
+  fi
+
   local gateway_sdk_version
   local cli_gateway_sdk_dependency_version
   gateway_sdk_version="$(node -p "require('$repository_root_directory/packages/gateway-sdk/package.json').version")"
@@ -608,7 +623,7 @@ prepare_npm_release() {
   local cli_package_name
   local cli_package_version
 
-  if [[ "$publish_npm_packages" != "true" ]]; then
+  if [[ "$publish_npm_packages" != "true" || "$deployment_mode" != "deploy" ]]; then
     return
   fi
 
@@ -622,19 +637,26 @@ prepare_npm_release() {
   publish_cli_package="false"
 
   if package_version_exists "$gateway_sdk_package_name" "$gateway_sdk_package_version"; then
+    if ! published_package_matches_workspace "@wundercorp/openmodel-gateway-sdk"; then
+      fail_deployment "$gateway_sdk_package_name@$gateway_sdk_package_version already exists, but the local package contents differ. Bump the SDK version before publishing."
+    fi
     log_message "Reusing published dependency $gateway_sdk_package_name@$gateway_sdk_package_version"
   else
     publish_gateway_sdk_package="true"
   fi
 
   if package_version_exists "$cli_package_name" "$cli_package_version"; then
+    if ! published_package_matches_workspace "@wundercorp/openmodel"; then
+      fail_deployment "$cli_package_name@$cli_package_version already exists, but the local package contents differ. Run npm run version:bump -- patch --package cli before publishing."
+    fi
     log_message "Reusing published package $cli_package_name@$cli_package_version"
   else
     publish_cli_package="true"
   fi
 
   if [[ "$publish_gateway_sdk_package" != "true" && "$publish_cli_package" != "true" ]]; then
-    fail_deployment "All npm package versions selected for publication already exist. Bump the package that changed, or omit --publish-npm for a website-only redeploy."
+    log_message "All selected npm package versions already exist and match the local package contents; continuing with the infrastructure and website deployment"
+    return
   fi
 
   log_message "Verifying npm authentication before changing AWS resources"
@@ -649,7 +671,11 @@ publish_workspace_package() {
   package_name="$(node -p "require('$package_json_path').name")"
   package_version="$(node -p "require('$package_json_path').version")"
   if package_version_exists "$package_name" "$package_version"; then
-    fail_deployment "$package_name@$package_version already exists. Bump the npm package versions before publishing."
+    if published_package_matches_workspace "$workspace_name"; then
+      log_message "Reusing $package_name@$package_version because it was published while this deployment was running"
+      return
+    fi
+    fail_deployment "$package_name@$package_version was published with different contents during this deployment. Rerun the deploy command so automatic version preparation can select the next patch version."
   fi
   log_message "Publishing $package_name@$package_version with npm tag $NPM_DIST_TAG"
   env \

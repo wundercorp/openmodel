@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Button, Card, CodeBlock } from "./components/ui";
+import { Badge, Button, Card, CodeBlock, Icon, PhosphorIcon, type IconName } from "./components/ui";
+import { DiscordLogoIcon, GithubLogoIcon, XLogoIcon } from "@wundercorp/baseui/phosphor";
 import { UsagePricingDashboard } from "./components/UsagePricingDashboard";
 import { ExternalUsageDashboard } from "./components/ExternalUsageDashboard";
 import { PublicLocalMetricsPage } from "./components/PublicLocalMetricsPage";
+import { BaseUIShowcase } from "./components/BaseUIShowcase";
 import {
   beginLogin,
   completeLogin,
@@ -49,7 +51,12 @@ type DashboardRoute =
   | "account";
 
 type DashboardResourceTab = "builderstudio" | "doku";
-type DashboardMetricsTab = "overview" | "performance" | "external" | "pricing" | "cloud";
+type DashboardMetricsTab =
+  | "overview"
+  | "performance"
+  | "external"
+  | "pricing"
+  | "cloud";
 
 interface CloudSessionMetrics {
   syncAttempts: number;
@@ -69,20 +76,40 @@ interface DashboardCache {
 
 const dashboardCacheKey = "openmodel:dashboard-cache";
 const modelInstallJobStorageKey = "openmodel:model-install-job";
-const dashboardSidebarCollapsedStorageKey = "openmodel:dashboard-sidebar-collapsed";
+const dashboardSidebarCollapsedStorageKey =
+  "openmodel:dashboard-sidebar-collapsed";
 
 const dashboardRouteItems: Array<{
   route: DashboardRoute;
-  index: string;
   label: string;
 }> = [
-  { route: "overview", index: "01", label: "OVERVIEW" },
-  { route: "models", index: "02", label: "MODELS" },
-  { route: "resources", index: "03", label: "RESOURCES" },
-  { route: "metrics", index: "04", label: "METRICS" },
-  { route: "gateways", index: "05", label: "GATEWAYS" },
-  { route: "account", index: "06", label: "ACCOUNT" },
+  { route: "overview", label: "Overview" },
+  { route: "models", label: "Models" },
+  { route: "resources", label: "Resources" },
+  { route: "metrics", label: "Metrics" },
+  { route: "gateways", label: "Gateways" },
+  { route: "account", label: "Account" },
 ];
+
+const dashboardRouteIconNames: Record<DashboardRoute, IconName> = {
+  overview: "dashboard",
+  models: "box",
+  resources: "file",
+  metrics: "chart",
+  gateways: "server",
+  account: "user",
+};
+
+function DashboardNavIcon({ route }: { route: DashboardRoute }) {
+  return (
+    <Icon
+      name={dashboardRouteIconNames[route]}
+      size={21}
+      weight="regular"
+      aria-hidden="true"
+    />
+  );
+}
 
 function readDashboardRoute(): DashboardRoute {
   const route = new URLSearchParams(window.location.search).get("view");
@@ -108,7 +135,12 @@ function readDashboardResourceTab(): DashboardResourceTab {
 
 function readDashboardMetricsTab(): DashboardMetricsTab {
   const tab = new URLSearchParams(window.location.search).get("tab");
-  if (tab === "performance" || tab === "external" || tab === "pricing" || tab === "cloud") {
+  if (
+    tab === "performance" ||
+    tab === "external" ||
+    tab === "pricing" ||
+    tab === "cloud"
+  ) {
     return tab;
   }
   return "overview";
@@ -145,7 +177,6 @@ function formatBytes(value: number | undefined) {
   }
   return `${(value / 1024 / 1024).toFixed(value >= 100 * 1024 * 1024 ? 0 : 1)} MB`;
 }
-
 
 function formatMetricNumber(value: number | undefined) {
   return formatCompactNumber(value, 1);
@@ -192,7 +223,8 @@ const gateways = [
 const starterModelFallback: InstallableLocalModel = {
   id: "qwen2.5-0.5b-instruct-q4",
   name: "Qwen2.5 0.5B Instruct",
-  description: "A compact instruction model intended as a quick first local download.",
+  description:
+    "A compact instruction model intended as a quick first local download.",
   reference:
     "hf://Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf",
   alias: "qwen-small",
@@ -224,9 +256,9 @@ export function App() {
   const [authenticationBusy, setAuthenticationBusy] = useState(
     () => window.location.pathname === "/auth/callback",
   );
-  const [authenticationError, setAuthenticationError] = useState<string | undefined>(() =>
-    consumeSessionValidationNotice(),
-  );
+  const [authenticationError, setAuthenticationError] = useState<
+    string | undefined
+  >(() => consumeSessionValidationNotice());
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -325,14 +357,30 @@ export function App() {
   const currentPath = window.location.pathname;
   const isDashboard =
     currentPath === "/dashboard" || currentPath.startsWith("/dashboard/");
+  const isBaseUI =
+    currentPath === "/baseui" || currentPath.startsWith("/baseui/");
   const isAuthCallback =
     currentPath === "/auth/callback" ||
     currentPath.startsWith("/auth/callback/");
   const sessionUser = useMemo(() => getSessionUser(session), [session]);
 
+  useEffect(() => {
+    const dashboardInterfaceActive = isDashboard || isAuthCallback;
+    document.body.classList.toggle("baseui-interface-active", isBaseUI);
+    document.body.classList.toggle(
+      "dashboard-interface-active",
+      dashboardInterfaceActive,
+    );
+
+    return () => {
+      document.body.classList.remove("dashboard-interface-active");
+      document.body.classList.remove("baseui-interface-active");
+    };
+  }, [isAuthCallback, isBaseUI, isDashboard]);
+
   return (
     <div className="page-shell">
-      {!isDashboard ? (
+      {!isDashboard && !isBaseUI ? (
         <SiteHeader
           theme={theme}
           accent={accent}
@@ -350,7 +398,7 @@ export function App() {
         />
       ) : null}
 
-      {authenticationError && !isDashboard && !isAuthCallback ? (
+      {authenticationError && !isDashboard && !isBaseUI && !isAuthCallback ? (
         <div className="authentication-notice authentication-notice-error">
           <span>AUTH_ERROR</span>
           <strong>{authenticationError}</strong>
@@ -363,8 +411,18 @@ export function App() {
         </div>
       ) : null}
 
-      {isAuthCallback ? (
+      {isBaseUI ? (
+        <BaseUIShowcase
+          theme={theme}
+          onThemeChange={() =>
+            setTheme((currentTheme) =>
+              currentTheme === "dark" ? "light" : "dark",
+            )
+          }
+        />
+      ) : isAuthCallback ? (
         <AuthCallbackPage
+          theme={theme}
           busy={authenticationBusy}
           error={authenticationError}
           onRetry={() => void startSignIn("/dashboard")}
@@ -372,7 +430,6 @@ export function App() {
       ) : isDashboard ? (
         <DashboardPage
           theme={theme}
-          accent={accent}
           session={session}
           authenticationError={authenticationError}
           onThemeChange={() =>
@@ -380,7 +437,6 @@ export function App() {
               currentTheme === "dark" ? "light" : "dark",
             )
           }
-          onAccentChange={setAccent}
           onSignIn={() => void startSignIn("/dashboard")}
           onSignOut={() => void signOut()}
           onSessionChange={synchronizeSession}
@@ -389,7 +445,7 @@ export function App() {
         <LandingPage />
       )}
 
-      {!isDashboard && !isAuthCallback ? <SiteFooter /> : null}
+      {!isDashboard && !isBaseUI && !isAuthCallback ? <SiteFooter /> : null}
     </div>
   );
 }
@@ -419,7 +475,9 @@ function SiteHeader({
 }: SiteHeaderProps) {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
-  const profileInitial = (sessionLabel?.trim().slice(0, 1) || "O").toUpperCase();
+  const profileInitial = (
+    sessionLabel?.trim().slice(0, 1) || "O"
+  ).toUpperCase();
 
   useEffect(() => {
     if (!profileMenuOpen) {
@@ -494,7 +552,9 @@ function SiteHeader({
               type="button"
               aria-haspopup="menu"
               aria-expanded={profileMenuOpen}
-              onClick={() => setProfileMenuOpen((currentValue) => !currentValue)}
+              onClick={() =>
+                setProfileMenuOpen((currentValue) => !currentValue)
+              }
             >
               <span className="site-profile-avatar" aria-hidden="true">
                 {profileInitial}
@@ -549,8 +609,8 @@ function LandingPage() {
           <Badge>GATEWAY-FIRST LOCAL INFERENCE</Badge>
           <h1>LLM INFERENCE GATEWAY</h1>
           <p className="lead">
-            Download portable artifacts, use native registries, run models
-            through llama.cpp or Ollama, with one interoperable local API.
+            Download and run language models locally, monitor telemetry, track
+            token usage and costs, and more.
           </p>
 
           <div className="hero-actions">
@@ -651,14 +711,15 @@ OpenModel local API listening on http://127.0.0.1:11435`}</CodeBlock>
 }
 
 interface AuthCallbackPageProps {
+  theme: Theme;
   busy: boolean;
   error?: string;
   onRetry: () => void;
 }
 
-function AuthCallbackPage({ busy, error, onRetry }: AuthCallbackPageProps) {
+function AuthCallbackPage({ theme, busy, error, onRetry }: AuthCallbackPageProps) {
   return (
-    <main className="auth-callback-page">
+    <main className="bui-root auth-callback-page" data-bui-theme={theme}>
       <Card className="auth-callback-panel">
         <div className="terminal-title">
           <span></span>
@@ -668,7 +729,7 @@ function AuthCallbackPage({ busy, error, onRetry }: AuthCallbackPageProps) {
         </div>
         <div className="auth-callback-content">
           <Badge>{error ? "AUTHENTICATION ERROR" : "COGNITO CALLBACK"}</Badge>
-          <h1>{error ? "SIGN IN FAILED" : "ESTABLISHING SESSION"}</h1>
+          <h1>{error ? "Sign in failed" : "Establishing session"}</h1>
           <p>
             {error
               ? error
@@ -679,9 +740,9 @@ function AuthCallbackPage({ busy, error, onRetry }: AuthCallbackPageProps) {
           </div>
           {error ? (
             <div className="hero-actions">
-              <Button onClick={onRetry}>TRY SIGN IN AGAIN</Button>
+              <Button onClick={onRetry}>Try sign in again</Button>
               <a className="button button-outline" href="/">
-                RETURN HOME
+                Return home
               </a>
             </div>
           ) : (
@@ -697,11 +758,9 @@ function AuthCallbackPage({ busy, error, onRetry }: AuthCallbackPageProps) {
 
 interface DashboardPageProps {
   theme: Theme;
-  accent: Accent;
   session?: AuthSession;
   authenticationError?: string;
   onThemeChange: () => void;
-  onAccentChange: (accent: Accent) => void;
   onSignIn: () => void;
   onSignOut: () => void;
   onSessionChange: () => void;
@@ -709,11 +768,9 @@ interface DashboardPageProps {
 
 function DashboardPage({
   theme,
-  accent,
   session,
   authenticationError,
   onThemeChange,
-  onAccentChange,
   onSignIn,
   onSignOut,
   onSessionChange,
@@ -724,8 +781,9 @@ function DashboardPage({
   );
   const [activeResourceTab, setActiveResourceTab] =
     useState<DashboardResourceTab>(() => readDashboardResourceTab());
-  const [activeMetricsTab, setActiveMetricsTab] =
-    useState<DashboardMetricsTab>(() => readDashboardMetricsTab());
+  const [activeMetricsTab, setActiveMetricsTab] = useState<DashboardMetricsTab>(
+    () => readDashboardMetricsTab(),
+  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem(dashboardSidebarCollapsedStorageKey) === "true",
   );
@@ -734,15 +792,16 @@ function DashboardPage({
     initialDashboardCache ? "ready" : "idle",
   );
   const [cloudRefreshing, setCloudRefreshing] = useState(false);
-  const [cloudMetrics, setCloudMetrics] = useState<CloudSessionMetrics>(() =>
-    initialDashboardCache?.cloudMetrics ?? {
-      syncAttempts: 0,
-      successfulSyncs: 0,
-      failedSyncs: 0,
-      totalLatencyMs: 0,
-      lastLatencyMs: 0,
-      lastSyncedAt: initialDashboardCache?.updatedAt,
-    },
+  const [cloudMetrics, setCloudMetrics] = useState<CloudSessionMetrics>(
+    () =>
+      initialDashboardCache?.cloudMetrics ?? {
+        syncAttempts: 0,
+        successfulSyncs: 0,
+        failedSyncs: 0,
+        totalLatencyMs: 0,
+        lastLatencyMs: 0,
+        lastSyncedAt: initialDashboardCache?.updatedAt,
+      },
   );
   const [lastCloudSyncAt, setLastCloudSyncAt] = useState<number | undefined>(
     initialDashboardCache?.updatedAt,
@@ -763,8 +822,11 @@ function DashboardPage({
   const [localApiState, setLocalApiState] = useState<LocalApiState>("idle");
   const [localApiError, setLocalApiError] = useState<string>();
   const [localModels, setLocalModels] = useState<LocalModelRecord[]>([]);
-  const [localModelCatalog, setLocalModelCatalog] = useState<InstallableLocalModel[]>([]);
-  const [localRuntimeStatus, setLocalRuntimeStatus] = useState<LocalRuntimeStatus>();
+  const [localModelCatalog, setLocalModelCatalog] = useState<
+    InstallableLocalModel[]
+  >([]);
+  const [localRuntimeStatus, setLocalRuntimeStatus] =
+    useState<LocalRuntimeStatus>();
   const [localRuntimeError, setLocalRuntimeError] = useState<string>();
   const [localMetrics, setLocalMetrics] = useState<LocalMetricsSnapshot>();
   const [localMetricsLoading, setLocalMetricsLoading] = useState(false);
@@ -779,11 +841,21 @@ function DashboardPage({
   const [copiedCommand, setCopiedCommand] = useState<string>();
   const dashboardRequestId = useRef(0);
   const localApiRequestId = useRef(0);
-  const dashboardAbortController = useRef<AbortController | undefined>(undefined);
-  const localApiAbortController = useRef<AbortController | undefined>(undefined);
-  const modelInstallAbortController = useRef<AbortController | undefined>(undefined);
-  const modelTestAbortController = useRef<AbortController | undefined>(undefined);
-  const localMetricsAbortController = useRef<AbortController | undefined>(undefined);
+  const dashboardAbortController = useRef<AbortController | undefined>(
+    undefined,
+  );
+  const localApiAbortController = useRef<AbortController | undefined>(
+    undefined,
+  );
+  const modelInstallAbortController = useRef<AbortController | undefined>(
+    undefined,
+  );
+  const modelTestAbortController = useRef<AbortController | undefined>(
+    undefined,
+  );
+  const localMetricsAbortController = useRef<AbortController | undefined>(
+    undefined,
+  );
   const localMetricsRequestId = useRef(0);
   const initialCloudLoadStarted = useRef(false);
   const dashboardProfileMenuRef = useRef<HTMLDivElement | null>(null);
@@ -952,7 +1024,7 @@ function DashboardPage({
       userResult.status === "fulfilled" || gatewayResult.status === "fulfilled";
     const updatedAt = cloudDataUpdated
       ? Date.now()
-      : cloudMetricsData.current.lastSyncedAt ?? Date.now();
+      : (cloudMetricsData.current.lastSyncedAt ?? Date.now());
     if (cloudDataUpdated) {
       setLastCloudSyncAt(updatedAt);
     }
@@ -984,8 +1056,7 @@ function DashboardPage({
         previousCloudMetrics.successfulSyncs + (errors.length === 0 ? 1 : 0),
       failedSyncs:
         previousCloudMetrics.failedSyncs + (errors.length > 0 ? 1 : 0),
-      totalLatencyMs:
-        previousCloudMetrics.totalLatencyMs + cloudSyncLatencyMs,
+      totalLatencyMs: previousCloudMetrics.totalLatencyMs + cloudSyncLatencyMs,
       lastLatencyMs: cloudSyncLatencyMs,
       lastSyncedAt:
         errors.length === 0 ? Date.now() : previousCloudMetrics.lastSyncedAt,
@@ -1087,7 +1158,9 @@ function DashboardPage({
         );
       }
 
-      const storedInstallJobId = localStorage.getItem(modelInstallJobStorageKey);
+      const storedInstallJobId = localStorage.getItem(
+        modelInstallJobStorageKey,
+      );
       if (storedInstallJobId && catalogResult.status === "fulfilled") {
         try {
           const storedJob = await getLocalModelInstall(
@@ -1128,35 +1201,38 @@ function DashboardPage({
     }
   }, []);
 
-  const refreshLocalModelsSilently = useCallback(async (requestedUrl: string) => {
-    const [modelsResult, catalogResult, runtimeResult, metricsResult] =
-      await Promise.allSettled([
-        getLocalModels(requestedUrl),
-        getLocalModelCatalog(requestedUrl),
-        getLocalRuntimeStatus(requestedUrl),
-        getLocalMetrics(requestedUrl),
-      ]);
+  const refreshLocalModelsSilently = useCallback(
+    async (requestedUrl: string) => {
+      const [modelsResult, catalogResult, runtimeResult, metricsResult] =
+        await Promise.allSettled([
+          getLocalModels(requestedUrl),
+          getLocalModelCatalog(requestedUrl),
+          getLocalRuntimeStatus(requestedUrl),
+          getLocalMetrics(requestedUrl),
+        ]);
 
-    if (modelsResult.status === "rejected") {
-      return false;
-    }
+      if (modelsResult.status === "rejected") {
+        return false;
+      }
 
-    setLocalModels(modelsResult.value);
-    if (catalogResult.status === "fulfilled") {
-      setLocalModelCatalog(catalogResult.value);
-    }
-    if (runtimeResult.status === "fulfilled") {
-      setLocalRuntimeStatus(runtimeResult.value);
-      setLocalRuntimeError(undefined);
-    }
-    if (metricsResult.status === "fulfilled") {
-      setLocalMetrics(metricsResult.value);
-      setLocalMetricsError(undefined);
-    }
-    setLocalApiState("connected");
-    setLocalApiError(undefined);
-    return true;
-  }, []);
+      setLocalModels(modelsResult.value);
+      if (catalogResult.status === "fulfilled") {
+        setLocalModelCatalog(catalogResult.value);
+      }
+      if (runtimeResult.status === "fulfilled") {
+        setLocalRuntimeStatus(runtimeResult.value);
+        setLocalRuntimeError(undefined);
+      }
+      if (metricsResult.status === "fulfilled") {
+        setLocalMetrics(metricsResult.value);
+        setLocalMetricsError(undefined);
+      }
+      setLocalApiState("connected");
+      setLocalApiError(undefined);
+      return true;
+    },
+    [],
+  );
 
   const loadLocalMetricsSnapshot = useCallback(
     async (showLoadingState = false) => {
@@ -1175,7 +1251,10 @@ function DashboardPage({
       }
 
       try {
-        const metrics = await getLocalMetrics(localApiUrl, abortController.signal);
+        const metrics = await getLocalMetrics(
+          localApiUrl,
+          abortController.signal,
+        );
         if (
           abortController.signal.aborted ||
           requestId !== localMetricsRequestId.current
@@ -1313,8 +1392,7 @@ function DashboardPage({
   );
 
   const activeModelInstallJobId =
-    modelInstallJob &&
-    !["completed", "error"].includes(modelInstallJob.status)
+    modelInstallJob && !["completed", "error"].includes(modelInstallJob.status)
       ? modelInstallJob.id
       : undefined;
 
@@ -1514,14 +1592,14 @@ function DashboardPage({
   if (!session) {
     const configurationError = getAuthConfigurationError();
     return (
-      <main className="dashboard-page dashboard-auth-gate">
+      <main className="bui-root dashboard-page dashboard-auth-gate" data-bui-theme={theme}>
         <button
           className="dashboard-auth-brand"
           type="button"
           onClick={navigateHome}
         >
-          <span aria-hidden="true">&gt;_</span>
-          <span>OPENMODEL.SH</span>
+          <span aria-hidden="true">OM</span>
+          <span>OpenModel</span>
         </button>
         <Card className="dashboard-auth-panel">
           <div className="terminal-title">
@@ -1532,7 +1610,7 @@ function DashboardPage({
           </div>
           <div className="dashboard-auth-content">
             <Badge>AUTHENTICATION REQUIRED</Badge>
-            <h1>LOGIN</h1>
+            <h1>Sign in</h1>
             <p>
               Sign in through Amazon Cognito to load your account, token status,
               cloud gateway registry, and local model workspace.
@@ -1543,12 +1621,15 @@ function DashboardPage({
               </div>
             ) : null}
             <div className="hero-actions">
-              <Button onClick={onSignIn}>SIGN IN WITH COGNITO</Button>
-              <Button variant="outline" onClick={() => navigateDashboard("metrics")}>
-                VIEW LOCAL METRICS
+              <Button onClick={onSignIn}>Sign in with Cognito</Button>
+              <Button
+                variant="outline"
+                onClick={() => navigateDashboard("metrics")}
+              >
+                View local metrics
               </Button>
               <Button variant="ghost" onClick={navigateHome}>
-                RETURN HOME
+                Return home
               </Button>
             </div>
           </div>
@@ -1592,15 +1673,16 @@ function DashboardPage({
   const displayedStarterModel = starterModel ?? starterModelFallback;
   const starterInstalledModelId =
     starterModel?.installedModelId ??
-    (modelInstallJob?.status === "completed" ? modelInstallJob.modelId : undefined);
+    (modelInstallJob?.status === "completed"
+      ? modelInstallJob.modelId
+      : undefined);
   const starterModelInstalled = Boolean(
     starterModel?.installed ||
-      (starterInstalledModelId &&
-        localModels.some((model) => model.id === starterInstalledModelId)),
+    (starterInstalledModelId &&
+      localModels.some((model) => model.id === starterInstalledModelId)),
   );
   const modelInstallInProgress = Boolean(
-    modelInstallJob &&
-      !["completed", "error"].includes(modelInstallJob.status),
+    modelInstallJob && !["completed", "error"].includes(modelInstallJob.status),
   );
   const modelInstallProgress = Math.max(
     0,
@@ -1629,8 +1711,7 @@ function DashboardPage({
   const builderStudioProfileId = "openmodel-local";
   const builderStudioModelId = activeLocalModelId ?? "YOUR_MODEL_ID";
   const builderStudioBaseUrl = `${localApiUrl}/v1`;
-  const builderStudioInstallCommand =
-    "npm install -g @wundercorp/bs@latest";
+  const builderStudioInstallCommand = "npm install -g @wundercorp/bs@latest";
   const builderStudioInitializeCommand = "bs init --skip-model-setup";
   const builderStudioImportCommand = `bs api POST /ai/providers/import --body-json '${JSON.stringify(
     {
@@ -1659,10 +1740,8 @@ function DashboardPage({
   const dokuInstallCommand = "npm install -g @wundercorp/doku@latest";
   const dokuGenerateCommand = "doku gen";
   const dokuPackCommand = "doku pack . --output doku.docs.json";
-  const dokuOpenCommand =
-    "doku open ./doku.docs.json --site https://doku.sh";
-  const dokuRefreshCommand =
-    "doku gen && doku pack . --output doku.docs.json";
+  const dokuOpenCommand = "doku open ./doku.docs.json --site https://doku.sh";
+  const dokuRefreshCommand = "doku gen && doku pack . --output doku.docs.json";
   const dokuCompleteSetupCommand = [
     dokuInstallCommand,
     "cd /path/to/your/project",
@@ -1695,7 +1774,9 @@ function DashboardPage({
         : localApiState === "offline"
           ? "OFFLINE"
           : "NOT CONNECTED";
-  const activeRouteLabel = activeRoute.toUpperCase();
+  const activeRouteLabel =
+    dashboardRouteItems.find((item) => item.route === activeRoute)?.label ??
+    "Overview";
   const localInferenceMetrics = localMetrics?.inference;
   const localTotalTokens = localInferenceMetrics?.totalTokens ?? 0;
   const localPromptTokenShare =
@@ -1704,7 +1785,8 @@ function DashboardPage({
       : 0;
   const localCompletionTokenShare =
     localTotalTokens > 0
-      ? ((localInferenceMetrics?.completionTokens ?? 0) / localTotalTokens) * 100
+      ? ((localInferenceMetrics?.completionTokens ?? 0) / localTotalTokens) *
+        100
       : 0;
   const localInferenceSuccessRate =
     (localInferenceMetrics?.totalRequests ?? 0) > 0
@@ -1727,7 +1809,8 @@ function DashboardPage({
 
   return (
     <main
-      className={`dashboard-app-shell${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`}
+      className={`bui-root dashboard-app-shell${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`}
+      data-bui-theme={theme}
     >
       <aside
         className={`dashboard-sidebar${sidebarCollapsed ? " is-collapsed" : ""}`}
@@ -1740,25 +1823,30 @@ function DashboardPage({
             title="Open OpenModel.sh"
           >
             <span className="dashboard-sidebar-brand-mark" aria-hidden="true">
-              &gt;_
+              OM
             </span>
             <span className="dashboard-sidebar-brand-copy">
-              <strong>OPENMODEL</strong>
-              <small>CONTROL PLANE</small>
+              <strong>OpenModel</strong>
+              <small>Local control plane</small>
             </span>
           </button>
 
           <button
             className="dashboard-sidebar-collapse"
             type="button"
-            aria-label={sidebarCollapsed ? "Expand dashboard navigation" : "Collapse dashboard navigation"}
-            title={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-label={
+              sidebarCollapsed
+                ? "Expand dashboard navigation"
+                : "Collapse dashboard navigation"
+            }
+            title={
+              sidebarCollapsed ? "Expand navigation" : "Collapse navigation"
+            }
             onClick={() => setSidebarCollapsed((currentValue) => !currentValue)}
           >
-            <span aria-hidden="true">{sidebarCollapsed ? ">>" : "<<"}</span>
+            <span aria-hidden="true">{sidebarCollapsed ? "›" : "‹"}</span>
           </button>
         </div>
-
 
         <nav className="dashboard-sidebar-nav" aria-label="Dashboard pages">
           {dashboardRouteItems.map((item) => (
@@ -1770,7 +1858,9 @@ function DashboardPage({
               title={sidebarCollapsed ? item.label : undefined}
               onClick={() => navigateDashboard(item.route)}
             >
-              <span className="dashboard-nav-index">{item.index}</span>
+              <span className="dashboard-nav-icon">
+                <DashboardNavIcon route={item.route} />
+              </span>
               <span className="dashboard-nav-label">{item.label}</span>
             </button>
           ))}
@@ -1790,18 +1880,8 @@ function DashboardPage({
         </div>
 
         <div className="dashboard-sidebar-controls">
-          <select
-            aria-label="Dashboard accent color"
-            value={accent}
-            onChange={(event) => onAccentChange(event.target.value as Accent)}
-          >
-            <option value="orange">ORANGE</option>
-            <option value="green">GREEN</option>
-            <option value="blue">BLUE</option>
-            <option value="fuchsia">FUCHSIA</option>
-          </select>
           <Button variant="outline" onClick={onThemeChange}>
-            {theme === "dark" ? "LIGHT MODE" : "OLED MODE"}
+            {theme === "dark" ? "Light mode" : "Dark mode"}
           </Button>
         </div>
       </aside>
@@ -1809,7 +1889,7 @@ function DashboardPage({
       <div className="dashboard-workspace">
         <header className="dashboard-topbar">
           <div className="dashboard-breadcrumb">
-            <span>OPENMODEL</span>
+            <span>OpenModel</span>
             <span>/</span>
             <strong>{activeRouteLabel}</strong>
           </div>
@@ -1820,12 +1900,14 @@ function DashboardPage({
               type="button"
               aria-haspopup="menu"
               aria-expanded={profileMenuOpen}
-              onClick={() => setProfileMenuOpen((currentValue) => !currentValue)}
+              onClick={() =>
+                setProfileMenuOpen((currentValue) => !currentValue)
+              }
             >
               <span className="dashboard-browser-session-status"></span>
               <span className="dashboard-profile-trigger-copy">
                 <strong>{displayedName}</strong>
-                <small>BROWSER SESSION · COGNITO</small>
+                <small>Browser session · Cognito</small>
               </span>
               <span className="dashboard-user-avatar dashboard-user-avatar-small">
                 {userInitials}
@@ -1843,7 +1925,7 @@ function DashboardPage({
                   onClick={() => navigateDashboard("account")}
                 >
                   <span>01</span>
-                  ACCOUNT PROFILE
+                  Account profile
                 </button>
                 <button
                   type="button"
@@ -1854,7 +1936,7 @@ function DashboardPage({
                   }}
                 >
                   <span>02</span>
-                  LOGOUT
+                  Sign out
                 </button>
               </div>
             ) : null}
@@ -1867,10 +1949,11 @@ function DashboardPage({
               <div className="dashboard-page-heading">
                 <div>
                   <Badge>AUTHENTICATED CONTROL PLANE</Badge>
-                  <h1>LOCAL INFERENCE WORKSPACE</h1>
+                  <h1>Local inference workspace</h1>
                   <p>
-                    Connect the browser to the OpenModel runtime on this computer,
-                    select an installed model, and copy the API request you need.
+                    Connect the browser to the OpenModel runtime on this
+                    computer, select an installed model, and copy the API
+                    request you need.
                   </p>
                 </div>
                 <div className="dashboard-page-actions">
@@ -1879,10 +1962,10 @@ function DashboardPage({
                     disabled={cloudRefreshing}
                     onClick={() => void loadDashboard()}
                   >
-                    {cloudRefreshing ? "SYNCING CLOUD" : "REFRESH CLOUD"}
+                    {cloudRefreshing ? "Syncing cloud" : "Refresh cloud"}
                   </Button>
                   <Button variant="ghost" onClick={navigateHome}>
-                    VIEW SITE
+                    View site
                   </Button>
                 </div>
               </div>
@@ -1899,7 +1982,9 @@ function DashboardPage({
 
               <div className="dashboard-status-grid dashboard-status-grid-four">
                 <Card className="dashboard-status-card">
-                  <span className="dashboard-status-label">BROWSER SESSION</span>
+                  <span className="dashboard-status-label">
+                    BROWSER SESSION
+                  </span>
                   <strong>ACTIVE</strong>
                   <span className="dashboard-status-detail">
                     EXPIRES {tokenExpiresAt.toLocaleTimeString()}
@@ -1918,13 +2003,19 @@ function DashboardPage({
                 </Card>
                 <Card className="dashboard-status-card">
                   <span className="dashboard-status-label">GATEWAYS</span>
-                  <strong>{String(gatewayRecords.length).padStart(2, "0")}</strong>
-                  <span className="dashboard-status-detail">AVAILABLE SOURCES</span>
+                  <strong>
+                    {String(gatewayRecords.length).padStart(2, "0")}
+                  </strong>
+                  <span className="dashboard-status-detail">
+                    AVAILABLE SOURCES
+                  </span>
                 </Card>
                 <Card className="dashboard-status-card">
                   <span className="dashboard-status-label">LOCAL MODELS</span>
                   <strong>{String(localModels.length).padStart(2, "0")}</strong>
-                  <span className="dashboard-status-detail">{localStatusLabel}</span>
+                  <span className="dashboard-status-detail">
+                    {localStatusLabel}
+                  </span>
                 </Card>
               </div>
 
@@ -1950,50 +2041,56 @@ function DashboardPage({
                       : "Start om serve once, then Open Models and install the recommended starter model directly from the dashboard."}
                   </p>
                   <Button onClick={() => navigateDashboard("models")}>
-                    OPEN MODELS
+                    Open models
                   </Button>
                 </Card>
 
                 <Card className="dashboard-overview-action-card">
-                  <span className="dashboard-panel-kicker">LOCAL AI WORKFLOW</span>
-                  <h3>USE YOUR MODEL IN BUILDERSTUDIO</h3>
+                  <span className="dashboard-panel-kicker">
+                    LOCAL AI WORKFLOW
+                  </span>
+                  <h3>Use your model in BuilderStudio</h3>
                   <p>
-                    Generate the exact local provider configuration for the model
-                    selected on this computer, then start asking questions or
-                    making code changes from your project directory.
+                    Generate the exact local provider configuration for the
+                    model selected on this computer, then start asking questions
+                    or making code changes from your project directory.
                   </p>
                   <Button
                     variant="outline"
                     onClick={() => navigateResourceTab("builderstudio")}
                   >
-                    OPEN MODEL WORKFLOW
+                    Open model workflow
                   </Button>
                 </Card>
 
                 <Card className="dashboard-overview-action-card">
                   <span className="dashboard-panel-kicker">DOCUMENTATION</span>
-                  <h3>GENERATE PROJECT DOCS WITH DOKU.SH</h3>
+                  <h3>Generate project docs with Doku.sh</h3>
                   <p>
                     Create docs.json, llms-full.txt, and a packed documentation
                     portal while your project evolves.
                   </p>
-                  <Button variant="outline" onClick={() => navigateResourceTab("doku")}>
-                    OPEN DOKU WORKFLOW
+                  <Button
+                    variant="outline"
+                    onClick={() => navigateResourceTab("doku")}
+                  >
+                    Open Doku workflow
                   </Button>
                 </Card>
 
                 <Card className="dashboard-overview-action-card">
                   <span className="dashboard-panel-kicker">OBSERVABILITY</span>
-                  <h3>TRACK TOKENS, LATENCY, AND INFERENCE</h3>
+                  <h3>Track tokens, latency, and inference</h3>
                   <p>
                     Review local token estimates, request success, latency,
-                    throughput, per-model activity, and cloud control-plane health.
+                    throughput, per-model activity, and cloud control-plane
+                    health.
                   </p>
                   <Button
                     variant="outline"
                     onClick={() => navigateDashboard("metrics")}
                   >
-                    OPEN METRICS
+                    Open metrics
                   </Button>
                 </Card>
 
@@ -2001,14 +2098,14 @@ function DashboardPage({
                   <span className="dashboard-panel-kicker">CLOUD REGISTRY</span>
                   <h3>{gatewayRecords.length} GATEWAYS AVAILABLE</h3>
                   <p>
-                    Review supported URI schemes and capabilities before choosing
-                    the source for your next model pull.
+                    Review supported URI schemes and capabilities before
+                    choosing the source for your next model pull.
                   </p>
                   <Button
                     variant="outline"
                     onClick={() => navigateDashboard("gateways")}
                   >
-                    VIEW GATEWAYS
+                    View gateways
                   </Button>
                 </Card>
               </div>
@@ -2021,7 +2118,7 @@ function DashboardPage({
                 <div>
                   <span className="dashboard-section-index">02</span>
                   <Badge>LOCAL MODEL LIBRARY</Badge>
-                  <h2>INSTALL AND RUN A MODEL</h2>
+                  <h2>Install and run a model</h2>
                   <p>
                     Start the local OpenModel service once. After that, the
                     dashboard can download a recommended model directly to this
@@ -2095,16 +2192,24 @@ function DashboardPage({
                   <button
                     type="button"
                     onClick={() =>
-                      void copyCommand("runtime-install-banner", runtimeInstallCommand)
+                      void copyCommand(
+                        "runtime-install-banner",
+                        runtimeInstallCommand,
+                      )
                     }
                   >
-                    {copiedCommand === "runtime-install-banner" ? "COPIED" : "COPY INSTALL COMMAND"}
+                    {copiedCommand === "runtime-install-banner"
+                      ? "COPIED"
+                      : "COPY INSTALL COMMAND"}
                   </button>
                 </div>
               ) : null}
 
               {localRuntimeError ? (
-                <div className="dashboard-runtime-banner dashboard-runtime-banner-warning" role="status">
+                <div
+                  className="dashboard-runtime-banner dashboard-runtime-banner-warning"
+                  role="status"
+                >
                   <div>
                     <span>LOCAL CLI::UPDATE REQUIRED</span>
                     <strong>RUNTIME DETECTION IS UNAVAILABLE</strong>
@@ -2120,15 +2225,26 @@ function DashboardPage({
                       )
                     }
                   >
-                    {copiedCommand === "runtime-cli-update" ? "COPIED" : "COPY UPDATE COMMAND"}
+                    {copiedCommand === "runtime-cli-update"
+                      ? "COPIED"
+                      : "COPY UPDATE COMMAND"}
                   </button>
                 </div>
               ) : null}
 
-              <Card className={`dashboard-model-installer ${starterModelInstalled ? "is-installed" : ""}`}>
+              <Card
+                className={`dashboard-model-installer ${starterModelInstalled ? "is-installed" : ""}`}
+              >
                 <div className="dashboard-model-installer-main">
-                  <div className="dashboard-model-installer-status" aria-hidden="true">
-                    {starterModelInstalled ? "✓" : modelInstallInProgress ? ">_" : "↓"}
+                  <div
+                    className="dashboard-model-installer-status"
+                    aria-hidden="true"
+                  >
+                    {starterModelInstalled
+                      ? "✓"
+                      : modelInstallInProgress
+                        ? ">_"
+                        : "↓"}
                   </div>
                   <div className="dashboard-model-installer-copy">
                     <span className="dashboard-panel-kicker">
@@ -2143,7 +2259,9 @@ function DashboardPage({
                     <div className="dashboard-model-specs">
                       <span>{displayedStarterModel.parameterCount}</span>
                       <span>{displayedStarterModel.format}</span>
-                      <span>{formatBytes(displayedStarterModel.sizeBytes)}</span>
+                      <span>
+                        {formatBytes(displayedStarterModel.sizeBytes)}
+                      </span>
                       <span>{displayedStarterModel.license}</span>
                     </div>
                   </div>
@@ -2192,13 +2310,17 @@ function DashboardPage({
                       aria-valuemax={100}
                       aria-valuenow={modelInstallProgress}
                     >
-                      <span style={{ width: `${modelInstallProgress}%` }}></span>
+                      <span
+                        style={{ width: `${modelInstallProgress}%` }}
+                      ></span>
                     </div>
                     <div className="dashboard-model-progress-meta">
                       <span>{modelInstallJob.stage.toUpperCase()}</span>
                       <span>
-                        {formatBytes(modelInstallJob.downloadedBytes)} / {formatBytes(
-                          modelInstallJob.totalBytes ?? displayedStarterModel.sizeBytes,
+                        {formatBytes(modelInstallJob.downloadedBytes)} /{" "}
+                        {formatBytes(
+                          modelInstallJob.totalBytes ??
+                            displayedStarterModel.sizeBytes,
                         )}
                       </span>
                       {modelInstallJob.fileName ? (
@@ -2225,7 +2347,10 @@ function DashboardPage({
                     <button
                       type="button"
                       onClick={() =>
-                        void copyCommand("serve-service", "om serve --port 11435")
+                        void copyCommand(
+                          "serve-service",
+                          "om serve --port 11435",
+                        )
                       }
                     >
                       {copiedCommand === "serve-service" ? "COPIED" : "COPY"}
@@ -2237,7 +2362,7 @@ function DashboardPage({
               <div className="dashboard-model-library-heading">
                 <div>
                   <span className="dashboard-panel-kicker">LOCAL REGISTRY</span>
-                  <h3>INSTALLED MODELS</h3>
+                  <h3>Installed models</h3>
                 </div>
                 <strong>{String(localModels.length).padStart(2, "0")}</strong>
               </div>
@@ -2278,19 +2403,26 @@ function DashboardPage({
                         type="button"
                         onClick={() => setSelectedModelId(model.id)}
                       >
-                        {model.id === selectedModelId ? "SELECTED" : "USE MODEL"}
+                        {model.id === selectedModelId
+                          ? "SELECTED"
+                          : "USE MODEL"}
                       </button>
                     </div>
                   ))}
                 </Card>
               ) : (
                 <Card className="dashboard-empty-models dashboard-empty-models-compact">
-                  <div className="dashboard-empty-models-symbol" aria-hidden="true">
+                  <div
+                    className="dashboard-empty-models-symbol"
+                    aria-hidden="true"
+                  >
                     [ ]
                   </div>
                   <div>
-                    <span className="dashboard-panel-kicker">REGISTRY::EMPTY</span>
-                    <h3>NO LOCAL MODELS YET</h3>
+                    <span className="dashboard-panel-kicker">
+                      REGISTRY::EMPTY
+                    </span>
+                    <h3>No local models yet</h3>
                     <p>
                       Use the Install button above. The model will appear here
                       automatically when the download completes.
@@ -2305,11 +2437,14 @@ function DashboardPage({
                     <Card className="dashboard-next-step-panel">
                       <div className="dashboard-panel-heading">
                         <div>
-                          <span className="dashboard-panel-kicker">INFERENCE::READY</span>
+                          <span className="dashboard-panel-kicker">
+                            INFERENCE::READY
+                          </span>
                           <h3>{selectedModel.id}</h3>
                         </div>
                         <span className="dashboard-online-indicator">
-                          {selectedModelRuntime?.availableRuntimeId?.toUpperCase() ?? "READY"}
+                          {selectedModelRuntime?.availableRuntimeId?.toUpperCase() ??
+                            "READY"}
                         </span>
                       </div>
 
@@ -2317,10 +2452,13 @@ function DashboardPage({
                         <div>
                           <span>RUN A LOCAL CHECK</span>
                           <strong>
-                            Send a short prompt through the OpenAI-compatible endpoint.
+                            Send a short prompt through the OpenAI-compatible
+                            endpoint.
                           </strong>
                           <small>
-                            The first response loads the model into memory and can take a little while. The test now runs as a single turn and exits automatically.
+                            The first response loads the model into memory and
+                            can take a little while. The test now runs as a
+                            single turn and exits automatically.
                           </small>
                         </div>
                         <Button
@@ -2336,14 +2474,20 @@ function DashboardPage({
                       </div>
 
                       {modelTestOutput ? (
-                        <div className="dashboard-model-test-result" aria-live="polite">
+                        <div
+                          className="dashboard-model-test-result"
+                          aria-live="polite"
+                        >
                           <span>MODEL RESPONSE</span>
                           <pre>{modelTestOutput}</pre>
                         </div>
                       ) : null}
 
                       {modelTestError ? (
-                        <div className="dashboard-model-install-error" aria-live="polite">
+                        <div
+                          className="dashboard-model-install-error"
+                          aria-live="polite"
+                        >
                           <strong>INFERENCE TEST FAILED</strong>
                           <span>{modelTestError}</span>
                         </div>
@@ -2364,22 +2508,29 @@ function DashboardPage({
                           title="SEND A CHAT REQUEST"
                           command={requestCommand}
                           copied={copiedCommand === "request"}
-                          onCopy={() => void copyCommand("request", requestCommand)}
+                          onCopy={() =>
+                            void copyCommand("request", requestCommand)
+                          }
                         />
                       </div>
                     </Card>
 
                     <Card className="dashboard-context-panel">
-                      <span className="dashboard-panel-kicker">CONNECTION DETAILS</span>
-                      <h3>USE IT FROM EXISTING TOOLS</h3>
+                      <span className="dashboard-panel-kicker">
+                        CONNECTION DETAILS
+                      </span>
+                      <h3>Use it from existing tools</h3>
                       <p>
-                        The model file and inference runtime are both ready. Point
-                        an OpenAI-compatible client at the local API.
+                        The model file and inference runtime are both ready.
+                        Point an OpenAI-compatible client at the local API.
                       </p>
                       <dl>
                         <div>
                           <dt>RUNTIME</dt>
-                          <dd>{selectedModelRuntime?.availableRuntimeId ?? "local"}</dd>
+                          <dd>
+                            {selectedModelRuntime?.availableRuntimeId ??
+                              "local"}
+                          </dd>
                         </div>
                         <div>
                           <dt>OPENAI BASE URL</dt>
@@ -2407,23 +2558,32 @@ function DashboardPage({
                     <Card className="dashboard-runtime-required-panel">
                       <div className="dashboard-panel-heading">
                         <div>
-                          <span className="dashboard-panel-kicker">NEXT: ENABLE INFERENCE</span>
+                          <span className="dashboard-panel-kicker">
+                            NEXT: ENABLE INFERENCE
+                          </span>
                           <h3>
                             {localRuntimeError
                               ? "UPDATE THE LOCAL CLI"
                               : `INSTALL ${preferredRuntimeId.toUpperCase()}`}
                           </h3>
                         </div>
-                        <span className="dashboard-runtime-missing-indicator">RUNTIME MISSING</span>
+                        <span className="dashboard-runtime-missing-indicator">
+                          RUNTIME MISSING
+                        </span>
                       </div>
                       <p>
                         Your model download is complete. OpenModel still needs a
-                        compatible local inference engine before chat requests can run.
+                        compatible local inference engine before chat requests
+                        can run.
                       </p>
                       <div className="dashboard-command-list">
                         <DashboardCommand
                           index="01"
-                          title={localRuntimeError ? "UPDATE OPENMODEL" : "INSTALL THE RUNTIME"}
+                          title={
+                            localRuntimeError
+                              ? "UPDATE OPENMODEL"
+                              : "INSTALL THE RUNTIME"
+                          }
                           command={
                             localRuntimeError
                               ? "npm install -g @wundercorp/openmodel@latest"
@@ -2445,31 +2605,40 @@ function DashboardPage({
                           command={runtimeVerifyCommand}
                           copied={copiedCommand === "runtime-verify"}
                           onCopy={() =>
-                            void copyCommand("runtime-verify", runtimeVerifyCommand)
+                            void copyCommand(
+                              "runtime-verify",
+                              runtimeVerifyCommand,
+                            )
                           }
                         />
                       </div>
                       <div className="dashboard-runtime-actions">
                         <Button
                           disabled={localApiState === "loading"}
-                          onClick={() => void loadLocalModelRegistry(localApiUrl)}
+                          onClick={() =>
+                            void loadLocalModelRegistry(localApiUrl)
+                          }
                         >
-                          {localApiState === "loading" ? "CHECKING" : "RECHECK RUNTIME"}
+                          {localApiState === "loading"
+                            ? "CHECKING"
+                            : "RECHECK RUNTIME"}
                         </Button>
                         <span>
-                          Restart <code>om serve</code> only if the runtime is still
-                          not detected after installation.
+                          Restart <code>om serve</code> only if the runtime is
+                          still not detected after installation.
                         </span>
                       </div>
                     </Card>
 
                     <Card className="dashboard-context-panel dashboard-runtime-context-panel">
-                      <span className="dashboard-panel-kicker">MODEL STATUS</span>
-                      <h3>DOWNLOADED IS NOT YET RUNNABLE</h3>
+                      <span className="dashboard-panel-kicker">
+                        MODEL STATUS
+                      </span>
+                      <h3>Downloaded is not yet runnable</h3>
                       <p>
-                        OpenModel separates model storage from execution. The GGUF
-                        file is safely installed; {preferredRuntimeId} supplies the
-                        native inference binary that reads it.
+                        OpenModel separates model storage from execution. The
+                        GGUF file is safely installed; {preferredRuntimeId}{" "}
+                        supplies the native inference binary that reads it.
                       </p>
                       <dl>
                         <div>
@@ -2501,37 +2670,50 @@ function DashboardPage({
           ) : null}
 
           {activeRoute === "resources" ? (
-            <div className="dashboard-resource-tabs" role="tablist" aria-label="Resources">
+            <div
+              className="dashboard-metrics-tabs dashboard-resource-tabs"
+              role="tablist"
+              aria-label="Resources"
+            >
               <button
-                className={activeResourceTab === "builderstudio" ? "is-active" : undefined}
+                className={
+                  activeResourceTab === "builderstudio"
+                    ? "is-active"
+                    : undefined
+                }
                 type="button"
                 role="tab"
                 aria-selected={activeResourceTab === "builderstudio"}
                 onClick={() => navigateResourceTab("builderstudio")}
               >
                 <span>01</span>
-                BUILDERSTUDIO / BS CLI
+                <strong>BUILDERSTUDIO / BS CLI</strong>
+                <small>Local model workflows</small>
               </button>
               <button
-                className={activeResourceTab === "doku" ? "is-active" : undefined}
+                className={
+                  activeResourceTab === "doku" ? "is-active" : undefined
+                }
                 type="button"
                 role="tab"
                 aria-selected={activeResourceTab === "doku"}
                 onClick={() => navigateResourceTab("doku")}
               >
                 <span>02</span>
-                DOKU.SH
+                <strong>DOKU.SH</strong>
+                <small>Documentation automation</small>
               </button>
             </div>
           ) : null}
 
-          {activeRoute === "resources" && activeResourceTab === "builderstudio" ? (
+          {activeRoute === "resources" &&
+          activeResourceTab === "builderstudio" ? (
             <section className="dashboard-section dashboard-page-view">
               <div className="dashboard-section-header">
                 <div>
                   <span className="dashboard-section-index">03</span>
                   <Badge>LOCAL AI TOOLING</Badge>
-                  <h2>USE YOUR MODEL WITH BUILDERSTUDIO</h2>
+                  <h2>Use your model with BuilderStudio</h2>
                   <p>
                     Connect BuilderStudio to the OpenAI-compatible API already
                     running on this computer. No model files leave your machine.
@@ -2546,7 +2728,10 @@ function DashboardPage({
                   >
                     VIEW NPM PACKAGE
                   </a>
-                  <Button variant="ghost" onClick={() => navigateDashboard("models")}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => navigateDashboard("models")}
+                  >
                     MANAGE MODELS
                   </Button>
                 </div>
@@ -2556,11 +2741,15 @@ function DashboardPage({
                 <div className="dashboard-tool-readiness-status">
                   <span
                     className={`dashboard-tool-status-dot ${
-                      localApiConnected && activeLocalModelRunnable ? "is-ready" : ""
+                      localApiConnected && activeLocalModelRunnable
+                        ? "is-ready"
+                        : ""
                     }`}
                   ></span>
                   <div>
-                    <span className="dashboard-panel-kicker">LOCAL MODEL STATUS</span>
+                    <span className="dashboard-panel-kicker">
+                      LOCAL MODEL STATUS
+                    </span>
                     <strong>
                       {!localApiConnected
                         ? "CONNECT THE LOCAL SERVICE"
@@ -2579,7 +2768,9 @@ function DashboardPage({
                       disabled={localApiState === "loading"}
                       onClick={() => void loadLocalModelRegistry(localApiInput)}
                     >
-                      {localApiState === "loading" ? "CONNECTING" : "CONNECT LOCAL API"}
+                      {localApiState === "loading"
+                        ? "CONNECTING"
+                        : "CONNECT LOCAL API"}
                     </Button>
                   ) : localModels.length === 0 ? (
                     <Button onClick={() => navigateDashboard("models")}>
@@ -2594,7 +2785,9 @@ function DashboardPage({
                       <span>MODEL</span>
                       <select
                         value={activeLocalModelId}
-                        onChange={(event) => setSelectedModelId(event.target.value)}
+                        onChange={(event) =>
+                          setSelectedModelId(event.target.value)
+                        }
                       >
                         {localModels.map((model) => (
                           <option key={model.id} value={model.id}>
@@ -2611,8 +2804,10 @@ function DashboardPage({
                 <Card className="dashboard-next-step-panel dashboard-tool-setup-panel">
                   <div className="dashboard-panel-heading">
                     <div>
-                      <span className="dashboard-panel-kicker">QUICK SETUP</span>
-                      <h3>CONNECT THE CURRENT PROJECT</h3>
+                      <span className="dashboard-panel-kicker">
+                        QUICK SETUP
+                      </span>
+                      <h3>Connect the current project</h3>
                     </div>
                     <button
                       className="dashboard-copy-all-button"
@@ -2707,8 +2902,10 @@ ${builderStudioInitializeCommand}`,
 
                 <div className="dashboard-tool-side-column">
                   <Card className="dashboard-context-panel dashboard-tool-summary">
-                    <span className="dashboard-panel-kicker">ACTIVE CONFIGURATION</span>
-                    <h3>OPENMODEL LOCAL</h3>
+                    <span className="dashboard-panel-kicker">
+                      ACTIVE CONFIGURATION
+                    </span>
+                    <h3>OpenModel local</h3>
                     <p>
                       BuilderStudio sends OpenAI-compatible chat completion
                       requests directly to your local OpenModel service.
@@ -2737,7 +2934,7 @@ ${builderStudioInitializeCommand}`,
                     <div className="dashboard-panel-heading">
                       <div>
                         <span className="dashboard-panel-kicker">TRY IT</span>
-                        <h3>ASK ABOUT YOUR PROJECT</h3>
+                        <h3>Ask about your project</h3>
                       </div>
                     </div>
                     <DashboardCommand
@@ -2764,7 +2961,7 @@ ${builderStudioInitializeCommand}`,
                 <div>
                   <span className="dashboard-section-index">03</span>
                   <Badge>DOCUMENTATION WORKFLOW</Badge>
-                  <h2>GENERATE DOCS AS YOU BUILD</h2>
+                  <h2>Generate docs as you build</h2>
                   <p>
                     Doku creates project metadata, an LLM-readable documentation
                     file, and a packed portal you can open on doku.sh.
@@ -2795,7 +2992,7 @@ ${builderStudioInitializeCommand}`,
                   <div className="dashboard-panel-heading">
                     <div>
                       <span className="dashboard-panel-kicker">FAST PATH</span>
-                      <h3>CREATE AND OPEN YOUR DOCS</h3>
+                      <h3>Create and open your docs</h3>
                     </div>
                     <button
                       className="dashboard-copy-all-button"
@@ -2839,22 +3036,28 @@ ${dokuGenerateCommand}`,
                       title="PACK THE PORTAL"
                       command={dokuPackCommand}
                       copied={copiedCommand === "doku-pack"}
-                      onCopy={() => void copyCommand("doku-pack", dokuPackCommand)}
+                      onCopy={() =>
+                        void copyCommand("doku-pack", dokuPackCommand)
+                      }
                     />
                     <DashboardCommand
                       index="04"
                       title="OPEN IT ON DOKU.SH"
                       command={dokuOpenCommand}
                       copied={copiedCommand === "doku-open"}
-                      onCopy={() => void copyCommand("doku-open", dokuOpenCommand)}
+                      onCopy={() =>
+                        void copyCommand("doku-open", dokuOpenCommand)
+                      }
                     />
                   </div>
                 </Card>
 
                 <div className="dashboard-tool-side-column">
                   <Card className="dashboard-context-panel dashboard-tool-summary">
-                    <span className="dashboard-panel-kicker">GENERATED OUTPUT</span>
-                    <h3>FILES DOKU CREATES</h3>
+                    <span className="dashboard-panel-kicker">
+                      GENERATED OUTPUT
+                    </span>
+                    <h3>Files Doku creates</h3>
                     <div className="dashboard-tool-file-list">
                       <div>
                         <code>docs.json</code>
@@ -2866,7 +3069,9 @@ ${dokuGenerateCommand}`,
                       </div>
                       <div>
                         <code>doku.docs.json</code>
-                        <span>Packed navigation and page content for the portal.</span>
+                        <span>
+                          Packed navigation and page content for the portal.
+                        </span>
                       </div>
                     </div>
                   </Card>
@@ -2874,8 +3079,10 @@ ${dokuGenerateCommand}`,
                   <Card className="dashboard-next-step-panel dashboard-tool-try-panel">
                     <div className="dashboard-panel-heading">
                       <div>
-                        <span className="dashboard-panel-kicker">ONGOING WORKFLOW</span>
-                        <h3>REFRESH DOCS AFTER CHANGES</h3>
+                        <span className="dashboard-panel-kicker">
+                          ONGOING WORKFLOW
+                        </span>
+                        <h3>Refresh docs after changes</h3>
                       </div>
                     </div>
                     <DashboardCommand
@@ -2894,14 +3101,19 @@ ${dokuGenerateCommand}`,
               <Card className="dashboard-tool-package-script">
                 <div className="dashboard-panel-heading">
                   <div>
-                    <span className="dashboard-panel-kicker">OPTIONAL AUTOMATION</span>
-                    <h3>ADD DOKU TO PACKAGE.JSON</h3>
+                    <span className="dashboard-panel-kicker">
+                      OPTIONAL AUTOMATION
+                    </span>
+                    <h3>Add Doku to package.json</h3>
                   </div>
                   <button
                     className="dashboard-copy-all-button"
                     type="button"
                     onClick={() =>
-                      void copyCommand("doku-package-scripts", dokuPackageScripts)
+                      void copyCommand(
+                        "doku-package-scripts",
+                        dokuPackageScripts,
+                      )
                     }
                   >
                     {copiedCommand === "doku-package-scripts"
@@ -2916,7 +3128,11 @@ ${dokuGenerateCommand}`,
 
           {activeRoute === "metrics" ? (
             <>
-              <div className="dashboard-metrics-tabs" role="tablist" aria-label="Metrics sections">
+              <div
+                className="dashboard-metrics-tabs"
+                role="tablist"
+                aria-label="Metrics sections"
+              >
                 <button
                   type="button"
                   role="tab"
@@ -2934,7 +3150,9 @@ ${dokuGenerateCommand}`,
                   role="tab"
                   aria-selected={activeMetricsTab === "performance"}
                   aria-controls="metrics-performance-panel"
-                  className={activeMetricsTab === "performance" ? "is-active" : ""}
+                  className={
+                    activeMetricsTab === "performance" ? "is-active" : ""
+                  }
                   onClick={() => navigateMetricsTab("performance")}
                 >
                   <span>02</span>
@@ -2980,557 +3198,704 @@ ${dokuGenerateCommand}`,
               </div>
 
               <section className="dashboard-section dashboard-page-view dashboard-metrics-page">
-              <div className="dashboard-section-header">
-                <div>
-                  <span className="dashboard-section-index">04</span>
-                  <Badge>
-                    {activeMetricsTab === "external"
-                      ? "SESSION TELEMETRY"
-                      : activeMetricsTab === "pricing"
-                        ? "WUNDERSHIP PRICING"
-                        : activeMetricsTab === "cloud"
-                          ? "CONTROL PLANE"
-                          : "LOCAL OBSERVABILITY"}
-                  </Badge>
-                  <h2>
-                    {activeMetricsTab === "external"
-                      ? "EXTERNAL TOKEN USAGE"
-                      : activeMetricsTab === "pricing"
-                        ? "USAGE AND COST"
-                        : activeMetricsTab === "cloud"
-                          ? "CLOUD AND SYNC"
-                          : "LOCAL TOKENS AND INFERENCE"}
-                  </h2>
-                  <p>
-                    {activeMetricsTab === "external"
-                      ? "Capture token and cost metadata from Claude Code, Codex, OpenRouter, BuilderStudio, and custom SDKs through the local collector."
-                      : activeMetricsTab === "pricing"
-                        ? "Compare local and cloud-model usage, model-aware allowance consumption, provider rates, and synchronized billing estimates."
-                        : activeMetricsTab === "cloud"
-                          ? "Review browser authentication, cloud API synchronization, gateway registry health, and session timing."
-                          : "Track local request volume, estimated token usage, latency, throughput, and model activity."}
-                  </p>
-                </div>
-                {activeMetricsTab === "overview" || activeMetricsTab === "performance" ? (
-                  <div className="dashboard-page-actions">
-                    <Button
-                      variant="outline"
-                      disabled={!localApiConnected || localMetricsLoading}
-                      onClick={() => void loadLocalMetricsSnapshot(true)}
-                    >
-                      {localMetricsLoading ? "SYNCING" : "REFRESH METRICS"}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      disabled={
-                        !localApiConnected ||
-                        !localMetrics ||
-                        localMetricsResetting ||
-                        (localInferenceMetrics?.activeRequests ?? 0) > 0
-                      }
-                      onClick={() => void clearLocalMetrics()}
-                    >
-                      {localMetricsResetting ? "RESETTING" : "RESET LOCAL"}
-                    </Button>
-                  </div>
-                ) : activeMetricsTab === "external" ? (
-                  <div className="dashboard-page-actions">
-                    <Button
-                      variant="outline"
-                      disabled={!localApiConnected || localMetricsLoading}
-                      onClick={() => void loadLocalMetricsSnapshot(true)}
-                    >
-                      {localMetricsLoading ? "REFRESHING" : "REFRESH EXTERNAL"}
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-
-              {activeMetricsTab === "overview" ? (
-                <div
-                  id="metrics-overview-panel"
-                  className="dashboard-metrics-tab-panel"
-                  role="tabpanel"
-                  aria-label="Metrics overview"
-                >
-              <Card className="dashboard-metrics-privacy">
-                <span className="dashboard-metrics-privacy-mark">LOCAL_ONLY</span>
-                <div>
-                  <strong>METRICS STAY ON THIS COMPUTER</strong>
-                  <p>
-                    OpenModel stores counts and timing metadata in memory only. Prompt
-                    and response content are not retained. Token counts are estimates
-                    until a runtime supplies exact usage data, and totals reset when
-                    <code> om serve </code> restarts.
-                  </p>
-                </div>
-              </Card>
-
-                  {!localApiConnected ? (
-                <Card className="dashboard-metrics-connect-panel">
+                <div className="dashboard-section-header">
                   <div>
-                    <span className="dashboard-panel-kicker">LOCAL SERVICE REQUIRED</span>
-                    <h3>CONNECT TO VIEW INFERENCE METRICS</h3>
+                    <span className="dashboard-section-index">04</span>
+                    <Badge>
+                      {activeMetricsTab === "external"
+                        ? "SESSION TELEMETRY"
+                        : activeMetricsTab === "pricing"
+                          ? "WUNDERSHIP PRICING"
+                          : activeMetricsTab === "cloud"
+                            ? "CONTROL PLANE"
+                            : "LOCAL OBSERVABILITY"}
+                    </Badge>
+                    <h2>
+                      {activeMetricsTab === "external"
+                        ? "EXTERNAL TOKEN USAGE"
+                        : activeMetricsTab === "pricing"
+                          ? "USAGE AND COST"
+                          : activeMetricsTab === "cloud"
+                            ? "CLOUD AND SYNC"
+                            : "LOCAL TOKENS AND INFERENCE"}
+                    </h2>
                     <p>
-                      Start <code>om serve --port 11435</code>, then connect the
-                      dashboard to the local API. No background connection is attempted.
+                      {activeMetricsTab === "external"
+                        ? "Capture token and cost metadata from Claude Code, Codex, OpenRouter, BuilderStudio, and custom SDKs through the local collector."
+                        : activeMetricsTab === "pricing"
+                          ? "Compare local and cloud-model usage, model-aware allowance consumption, provider rates, and synchronized billing estimates."
+                          : activeMetricsTab === "cloud"
+                            ? "Review browser authentication, cloud API synchronization, gateway registry health, and session timing."
+                            : "Track local request volume, estimated token usage, latency, throughput, and model activity."}
                     </p>
                   </div>
-                  <form
-                    className="dashboard-local-api-form"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void loadLocalModelRegistry(localApiInput);
-                    }}
-                  >
-                    <label htmlFor="metrics-local-api-url">LOCAL SERVICE</label>
-                    <input
-                      id="metrics-local-api-url"
-                      value={localApiInput}
-                      onChange={(event) => setLocalApiInput(event.target.value)}
-                      spellCheck={false}
-                    />
-                    <Button disabled={localApiState === "loading"} type="submit">
-                      {localApiState === "loading" ? "CONNECTING" : "CONNECT"}
-                    </Button>
-                  </form>
-                  {localApiError ? (
-                    <p className="dashboard-local-api-error">{localApiError}</p>
-                  ) : null}
-                </Card>
-                  ) : localMetricsError && !localMetrics ? (
-                <Card className="dashboard-metrics-connect-panel dashboard-metrics-error-panel">
-                  <div>
-                    <span className="dashboard-panel-kicker">METRICS UNAVAILABLE</span>
-                    <h3>UPDATE THE LOCAL OPENMODEL CLI</h3>
-                    <p>{localMetricsError}</p>
-                  </div>
-                  <DashboardCommand
-                    index="$"
-                    title="UPDATE OPENMODEL"
-                    command="npm install -g @wundercorp/openmodel@latest"
-                    copied={copiedCommand === "metrics-update-cli"}
-                    onCopy={() =>
-                      void copyCommand(
-                        "metrics-update-cli",
-                        "npm install -g @wundercorp/openmodel@latest",
-                      )
-                    }
-                  />
-                </Card>
-                  ) : (
-                    <>
-                  {localMetricsError ? (
-                    <div className="authentication-notice authentication-notice-error dashboard-notice">
-                      <span>METRICS_WARNING</span>
-                      <strong>{localMetricsError}</strong>
-                      <button
-                        type="button"
+                  {activeMetricsTab === "overview" ||
+                  activeMetricsTab === "performance" ? (
+                    <div className="dashboard-page-actions">
+                      <Button
+                        variant="outline"
+                        disabled={!localApiConnected || localMetricsLoading}
                         onClick={() => void loadLocalMetricsSnapshot(true)}
                       >
-                        RETRY
-                      </button>
+                        {localMetricsLoading ? "SYNCING" : "REFRESH METRICS"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        disabled={
+                          !localApiConnected ||
+                          !localMetrics ||
+                          localMetricsResetting ||
+                          (localInferenceMetrics?.activeRequests ?? 0) > 0
+                        }
+                        onClick={() => void clearLocalMetrics()}
+                      >
+                        {localMetricsResetting ? "RESETTING" : "RESET LOCAL"}
+                      </Button>
+                    </div>
+                  ) : activeMetricsTab === "external" ? (
+                    <div className="dashboard-page-actions">
+                      <Button
+                        variant="outline"
+                        disabled={!localApiConnected || localMetricsLoading}
+                        onClick={() => void loadLocalMetricsSnapshot(true)}
+                      >
+                        {localMetricsLoading
+                          ? "REFRESHING"
+                          : "REFRESH EXTERNAL"}
+                      </Button>
                     </div>
                   ) : null}
-                  <div className="dashboard-metrics-grid">
-                    <Card className="dashboard-metric-card">
-                      <span>TOTAL TOKENS</span>
-                      <strong>{formatMetricNumber(localTotalTokens)}</strong>
-                      <small>ESTIMATED LOCAL USAGE</small>
-                    </Card>
-                    <Card className="dashboard-metric-card">
-                      <span>REQUESTS</span>
-                      <strong>
-                        {formatMetricNumber(localInferenceMetrics?.totalRequests)}
-                      </strong>
-                      <small>
-                        {formatMetricNumber(localInferenceMetrics?.activeRequests)} ACTIVE
-                      </small>
-                    </Card>
-                    <Card className="dashboard-metric-card">
-                      <span>SUCCESS RATE</span>
-                      <strong>{formatPercent(localInferenceSuccessRate)}</strong>
-                      <small>
-                        {formatMetricNumber(localInferenceMetrics?.failedRequests)} FAILED ·{" "}
-                        {formatMetricNumber(localInferenceMetrics?.cancelledRequests)} CANCELLED
-                      </small>
-                    </Card>
-                    <Card className="dashboard-metric-card">
-                      <span>AVG LATENCY</span>
-                      <strong>
-                        {formatDuration(localInferenceMetrics?.averageLatencyMs)}
-                      </strong>
-                      <small>
-                        P50 {formatDuration(localInferenceMetrics?.p50LatencyMs)}
-                      </small>
-                    </Card>
-                    <Card className="dashboard-metric-card">
-                      <span>P95 LATENCY</span>
-                      <strong>{formatDuration(localInferenceMetrics?.p95LatencyMs)}</strong>
-                      <small>
-                        MAX {formatDuration(localInferenceMetrics?.maxLatencyMs)}
-                      </small>
-                    </Card>
-                    <Card className="dashboard-metric-card">
-                      <span>COMPLETION SPEED</span>
-                      <strong>
-                        {formatMetricNumber(
-                          localInferenceMetrics?.averageTokensPerSecond,
-                        )}
-                      </strong>
-                      <small>EST. TOKENS / SECOND</small>
-                    </Card>
-                    <Card className="dashboard-metric-card">
-                      <span>MODEL STORAGE</span>
-                      <strong>{formatBytes(localMetrics?.models.storageBytes)}</strong>
-                      <small>
-                        {formatMetricNumber(localMetrics?.models.installedCount)} INSTALLED ·{" "}
-                        {formatMetricNumber(localMetrics?.models.runnableCount)} RUNNABLE
-                      </small>
-                    </Card>
-                    <Card className="dashboard-metric-card">
-                      <span>METRICS WINDOW</span>
-                      <strong>{formatUptime(localMetrics?.server.metricsUptimeSeconds)}</strong>
-                      <small>
-                        SERVER UP {formatUptime(localMetrics?.server.uptimeSeconds)}
-                      </small>
-                    </Card>
-                  </div>
-                    </>
-                  )}
                 </div>
-              ) : null}
 
-              {activeMetricsTab === "performance" ? (
-                <div
-                  id="metrics-performance-panel"
-                  className="dashboard-metrics-tab-panel"
-                  role="tabpanel"
-                  aria-label="Local inference performance"
-                >
-                  {!localApiConnected ? (
-                    <Card className="dashboard-metrics-connect-panel">
+                {activeMetricsTab === "overview" ? (
+                  <div
+                    id="metrics-overview-panel"
+                    className="dashboard-metrics-tab-panel"
+                    role="tabpanel"
+                    aria-label="Metrics overview"
+                  >
+                    <Card className="dashboard-metrics-privacy">
+                      <span className="dashboard-metrics-privacy-mark">
+                        LOCAL_ONLY
+                      </span>
                       <div>
-                        <span className="dashboard-panel-kicker">LOCAL SERVICE REQUIRED</span>
-                        <h3>CONNECT BEFORE VIEWING PERFORMANCE</h3>
+                        <strong>METRICS STAY ON THIS COMPUTER</strong>
                         <p>
-                          Connect to <code>om serve</code> from Overview to load latency,
-                          throughput, request history, and per-model activity.
+                          OpenModel stores counts and timing metadata in memory
+                          only. Prompt and response content are not retained.
+                          Token counts are estimates until a runtime supplies
+                          exact usage data, and totals reset when
+                          <code> om serve </code> restarts.
+                        </p>
+                      </div>
+                    </Card>
+
+                    {!localApiConnected ? (
+                      <Card className="dashboard-metrics-connect-panel">
+                        <div>
+                          <span className="dashboard-panel-kicker">
+                            LOCAL SERVICE REQUIRED
+                          </span>
+                          <h3>Connect to view inference metrics</h3>
+                          <p>
+                            Start <code>om serve --port 11435</code>, then
+                            connect the dashboard to the local API. No
+                            background connection is attempted.
+                          </p>
+                        </div>
+                        <form
+                          className="dashboard-local-api-form"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void loadLocalModelRegistry(localApiInput);
+                          }}
+                        >
+                          <label htmlFor="metrics-local-api-url">
+                            LOCAL SERVICE
+                          </label>
+                          <input
+                            id="metrics-local-api-url"
+                            value={localApiInput}
+                            onChange={(event) =>
+                              setLocalApiInput(event.target.value)
+                            }
+                            spellCheck={false}
+                          />
+                          <Button
+                            disabled={localApiState === "loading"}
+                            type="submit"
+                          >
+                            {localApiState === "loading"
+                              ? "CONNECTING"
+                              : "CONNECT"}
+                          </Button>
+                        </form>
+                        {localApiError ? (
+                          <p className="dashboard-local-api-error">
+                            {localApiError}
+                          </p>
+                        ) : null}
+                      </Card>
+                    ) : localMetricsError && !localMetrics ? (
+                      <Card className="dashboard-metrics-connect-panel dashboard-metrics-error-panel">
+                        <div>
+                          <span className="dashboard-panel-kicker">
+                            METRICS UNAVAILABLE
+                          </span>
+                          <h3>Update the local OpenModel CLI</h3>
+                          <p>{localMetricsError}</p>
+                        </div>
+                        <DashboardCommand
+                          index="$"
+                          title="UPDATE OPENMODEL"
+                          command="npm install -g @wundercorp/openmodel@latest"
+                          copied={copiedCommand === "metrics-update-cli"}
+                          onCopy={() =>
+                            void copyCommand(
+                              "metrics-update-cli",
+                              "npm install -g @wundercorp/openmodel@latest",
+                            )
+                          }
+                        />
+                      </Card>
+                    ) : (
+                      <>
+                        {localMetricsError ? (
+                          <div className="authentication-notice authentication-notice-error dashboard-notice">
+                            <span>METRICS_WARNING</span>
+                            <strong>{localMetricsError}</strong>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void loadLocalMetricsSnapshot(true)
+                              }
+                            >
+                              RETRY
+                            </button>
+                          </div>
+                        ) : null}
+                        <div className="dashboard-metrics-grid">
+                          <Card className="dashboard-metric-card">
+                            <span>TOTAL TOKENS</span>
+                            <strong>
+                              {formatMetricNumber(localTotalTokens)}
+                            </strong>
+                            <small>ESTIMATED LOCAL USAGE</small>
+                          </Card>
+                          <Card className="dashboard-metric-card">
+                            <span>REQUESTS</span>
+                            <strong>
+                              {formatMetricNumber(
+                                localInferenceMetrics?.totalRequests,
+                              )}
+                            </strong>
+                            <small>
+                              {formatMetricNumber(
+                                localInferenceMetrics?.activeRequests,
+                              )}{" "}
+                              ACTIVE
+                            </small>
+                          </Card>
+                          <Card className="dashboard-metric-card">
+                            <span>SUCCESS RATE</span>
+                            <strong>
+                              {formatPercent(localInferenceSuccessRate)}
+                            </strong>
+                            <small>
+                              {formatMetricNumber(
+                                localInferenceMetrics?.failedRequests,
+                              )}{" "}
+                              FAILED ·{" "}
+                              {formatMetricNumber(
+                                localInferenceMetrics?.cancelledRequests,
+                              )}{" "}
+                              CANCELLED
+                            </small>
+                          </Card>
+                          <Card className="dashboard-metric-card">
+                            <span>AVG LATENCY</span>
+                            <strong>
+                              {formatDuration(
+                                localInferenceMetrics?.averageLatencyMs,
+                              )}
+                            </strong>
+                            <small>
+                              P50{" "}
+                              {formatDuration(
+                                localInferenceMetrics?.p50LatencyMs,
+                              )}
+                            </small>
+                          </Card>
+                          <Card className="dashboard-metric-card">
+                            <span>P95 LATENCY</span>
+                            <strong>
+                              {formatDuration(
+                                localInferenceMetrics?.p95LatencyMs,
+                              )}
+                            </strong>
+                            <small>
+                              MAX{" "}
+                              {formatDuration(
+                                localInferenceMetrics?.maxLatencyMs,
+                              )}
+                            </small>
+                          </Card>
+                          <Card className="dashboard-metric-card">
+                            <span>COMPLETION SPEED</span>
+                            <strong>
+                              {formatMetricNumber(
+                                localInferenceMetrics?.averageTokensPerSecond,
+                              )}
+                            </strong>
+                            <small>EST. TOKENS / SECOND</small>
+                          </Card>
+                          <Card className="dashboard-metric-card">
+                            <span>MODEL STORAGE</span>
+                            <strong>
+                              {formatBytes(localMetrics?.models.storageBytes)}
+                            </strong>
+                            <small>
+                              {formatMetricNumber(
+                                localMetrics?.models.installedCount,
+                              )}{" "}
+                              INSTALLED ·{" "}
+                              {formatMetricNumber(
+                                localMetrics?.models.runnableCount,
+                              )}{" "}
+                              RUNNABLE
+                            </small>
+                          </Card>
+                          <Card className="dashboard-metric-card">
+                            <span>METRICS WINDOW</span>
+                            <strong>
+                              {formatUptime(
+                                localMetrics?.server.metricsUptimeSeconds,
+                              )}
+                            </strong>
+                            <small>
+                              SERVER UP{" "}
+                              {formatUptime(localMetrics?.server.uptimeSeconds)}
+                            </small>
+                          </Card>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+
+                {activeMetricsTab === "performance" ? (
+                  <div
+                    id="metrics-performance-panel"
+                    className="dashboard-metrics-tab-panel"
+                    role="tabpanel"
+                    aria-label="Local inference performance"
+                  >
+                    {!localApiConnected ? (
+                      <Card className="dashboard-metrics-connect-panel">
+                        <div>
+                          <span className="dashboard-panel-kicker">
+                            LOCAL SERVICE REQUIRED
+                          </span>
+                          <h3>Connect before viewing performance</h3>
+                          <p>
+                            Connect to <code>om serve</code> from Overview to
+                            load latency, throughput, request history, and
+                            per-model activity.
+                          </p>
+                        </div>
+                        <Button
+                          className="dashboard-metrics-connect-action"
+                          onClick={() => navigateMetricsTab("overview")}
+                        >
+                          OPEN OVERVIEW
+                        </Button>
+                      </Card>
+                    ) : localMetricsError && !localMetrics ? (
+                      <Card className="dashboard-metrics-connect-panel dashboard-metrics-error-panel">
+                        <div>
+                          <span className="dashboard-panel-kicker">
+                            METRICS UNAVAILABLE
+                          </span>
+                          <h3>Update the local OpenModel CLI</h3>
+                          <p>{localMetricsError}</p>
+                        </div>
+                        <DashboardCommand
+                          index="$"
+                          title="UPDATE OPENMODEL"
+                          command="npm install -g @wundercorp/openmodel@latest"
+                          copied={copiedCommand === "metrics-update-cli"}
+                          onCopy={() =>
+                            void copyCommand(
+                              "metrics-update-cli",
+                              "npm install -g @wundercorp/openmodel@latest",
+                            )
+                          }
+                        />
+                      </Card>
+                    ) : (
+                      <>
+                        {localMetricsError ? (
+                          <div className="authentication-notice authentication-notice-error dashboard-notice">
+                            <span>METRICS_WARNING</span>
+                            <strong>{localMetricsError}</strong>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void loadLocalMetricsSnapshot(true)
+                              }
+                            >
+                              RETRY
+                            </button>
+                          </div>
+                        ) : null}
+                        <div className="dashboard-metrics-split">
+                          <Card className="dashboard-metrics-panel">
+                            <div className="dashboard-panel-heading">
+                              <div>
+                                <span className="dashboard-panel-kicker">
+                                  TOKEN MIX
+                                </span>
+                                <h3>Prompt vs. completion</h3>
+                              </div>
+                              <span className="dashboard-metrics-live-indicator">
+                                {(localInferenceMetrics?.activeRequests ?? 0) >
+                                0
+                                  ? "INFERENCE ACTIVE"
+                                  : "IDLE"}
+                              </span>
+                            </div>
+
+                            <div className="dashboard-token-breakdown">
+                              <div>
+                                <span>PROMPT TOKENS</span>
+                                <strong>
+                                  {formatMetricNumber(
+                                    localInferenceMetrics?.promptTokens,
+                                  )}
+                                </strong>
+                                <small>
+                                  {formatPercent(localPromptTokenShare)}
+                                </small>
+                              </div>
+                              <div
+                                className="dashboard-token-bar"
+                                aria-hidden="true"
+                              >
+                                <span
+                                  className="dashboard-token-bar-prompt"
+                                  style={{ width: `${localPromptTokenShare}%` }}
+                                ></span>
+                              </div>
+                              <div>
+                                <span>COMPLETION TOKENS</span>
+                                <strong>
+                                  {formatMetricNumber(
+                                    localInferenceMetrics?.completionTokens,
+                                  )}
+                                </strong>
+                                <small>
+                                  {formatPercent(localCompletionTokenShare)}
+                                </small>
+                              </div>
+                              <div
+                                className="dashboard-token-bar"
+                                aria-hidden="true"
+                              >
+                                <span
+                                  className="dashboard-token-bar-completion"
+                                  style={{
+                                    width: `${localCompletionTokenShare}%`,
+                                  }}
+                                ></span>
+                              </div>
+                            </div>
+                          </Card>
+
+                          <Card className="dashboard-metrics-panel">
+                            <div className="dashboard-panel-heading">
+                              <div>
+                                <span className="dashboard-panel-kicker">
+                                  LOCAL RUNTIME
+                                </span>
+                                <h3>Inference activity</h3>
+                              </div>
+                            </div>
+                            <dl className="dashboard-definition-list dashboard-metrics-definition-list">
+                              <div>
+                                <dt>ACTIVE REQUESTS</dt>
+                                <dd>
+                                  {formatMetricNumber(
+                                    localInferenceMetrics?.activeRequests,
+                                  )}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>SUCCESSFUL</dt>
+                                <dd>
+                                  {formatMetricNumber(
+                                    localInferenceMetrics?.successfulRequests,
+                                  )}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>INSTALL JOBS</dt>
+                                <dd>
+                                  {formatMetricNumber(
+                                    localMetrics?.installs.active,
+                                  )}{" "}
+                                  ACTIVE ·{" "}
+                                  {formatMetricNumber(
+                                    localMetrics?.installs.completed,
+                                  )}{" "}
+                                  COMPLETE
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>LAST REQUEST</dt>
+                                <dd>
+                                  {localInferenceMetrics?.lastRequestAt
+                                    ? new Date(
+                                        localInferenceMetrics.lastRequestAt,
+                                      ).toLocaleTimeString()
+                                    : "NO REQUESTS YET"}
+                                </dd>
+                              </div>
+                            </dl>
+                          </Card>
+                        </div>
+
+                        <Card className="dashboard-metrics-table-panel">
+                          <div className="dashboard-panel-heading">
+                            <div>
+                              <span className="dashboard-panel-kicker">
+                                INFERENCE LOG
+                              </span>
+                              <h3>Recent requests</h3>
+                            </div>
+                            <span className="dashboard-metrics-generated-at">
+                              UPDATED{" "}
+                              {localMetrics?.generatedAt
+                                ? new Date(
+                                    localMetrics.generatedAt,
+                                  ).toLocaleTimeString()
+                                : "--"}
+                            </span>
+                          </div>
+                          <div className="dashboard-metrics-request-header">
+                            <span>TIME</span>
+                            <span>MODEL</span>
+                            <span>RUNTIME</span>
+                            <span>TOKENS</span>
+                            <span>LATENCY</span>
+                            <span>SPEED</span>
+                            <span>STATUS</span>
+                          </div>
+                          {(localMetrics?.recentRequests.length ?? 0) === 0 ? (
+                            <div className="dashboard-table-empty">
+                              RUN A MODEL REQUEST TO START THE TRACKER
+                            </div>
+                          ) : (
+                            localMetrics?.recentRequests
+                              .slice(0, 20)
+                              .map((request) => (
+                                <div
+                                  className="dashboard-metrics-request-row"
+                                  key={request.id}
+                                >
+                                  <span>
+                                    {new Date(
+                                      request.completedAt,
+                                    ).toLocaleTimeString()}
+                                  </span>
+                                  <code title={request.modelId}>
+                                    {request.modelId}
+                                  </code>
+                                  <span>{request.runtimeId ?? "UNKNOWN"}</span>
+                                  <strong>
+                                    {formatMetricNumber(request.totalTokens)}
+                                  </strong>
+                                  <span>
+                                    {formatDuration(request.latencyMs)}
+                                  </span>
+                                  <span>
+                                    {formatMetricNumber(
+                                      request.tokensPerSecond,
+                                    )}{" "}
+                                    TOK/S
+                                  </span>
+                                  <span
+                                    className={`dashboard-metrics-status dashboard-metrics-status-${request.status}`}
+                                    title={request.error}
+                                  >
+                                    {request.status.toUpperCase()}
+                                  </span>
+                                </div>
+                              ))
+                          )}
+                        </Card>
+
+                        <Card className="dashboard-metrics-table-panel">
+                          <div className="dashboard-panel-heading">
+                            <div>
+                              <span className="dashboard-panel-kicker">
+                                MODEL BREAKDOWN
+                              </span>
+                              <h3>Usage by model</h3>
+                            </div>
+                          </div>
+                          <div className="dashboard-metrics-model-header">
+                            <span>MODEL</span>
+                            <span>RUNTIME</span>
+                            <span>REQUESTS</span>
+                            <span>TOKENS</span>
+                            <span>AVG LATENCY</span>
+                            <span>AVG SPEED</span>
+                          </div>
+                          {(localMetrics?.models.byModel.length ?? 0) === 0 ? (
+                            <div className="dashboard-table-empty">
+                              NO MODEL USAGE RECORDED IN THIS SERVER SESSION
+                            </div>
+                          ) : (
+                            localMetrics?.models.byModel.map((modelMetric) => (
+                              <div
+                                className="dashboard-metrics-model-row"
+                                key={modelMetric.modelId}
+                              >
+                                <code title={modelMetric.modelId}>
+                                  {modelMetric.modelId}
+                                </code>
+                                <span>
+                                  {modelMetric.runtimeId ?? "UNKNOWN"}
+                                </span>
+                                <strong>
+                                  {formatMetricNumber(modelMetric.requests)}
+                                </strong>
+                                <span>
+                                  {formatMetricNumber(modelMetric.totalTokens)}
+                                </span>
+                                <span>
+                                  {formatDuration(modelMetric.averageLatencyMs)}
+                                </span>
+                                <span>
+                                  {formatMetricNumber(
+                                    modelMetric.averageTokensPerSecond,
+                                  )}{" "}
+                                  TOK/S
+                                </span>
+                              </div>
+                            ))
+                          )}
+                        </Card>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+
+                {activeMetricsTab === "external" ? (
+                  <div
+                    id="metrics-external-panel"
+                    className="dashboard-metrics-tab-panel"
+                    role="tabpanel"
+                    aria-label="External usage and setup"
+                  >
+                    <ExternalUsageDashboard
+                      connected={localApiConnected}
+                      localApiUrl={localApiUrl}
+                      localMetrics={localMetrics}
+                    />
+                  </div>
+                ) : null}
+
+                {activeMetricsTab === "pricing" ? (
+                  <div
+                    id="metrics-pricing-panel"
+                    className="dashboard-metrics-tab-panel"
+                    role="tabpanel"
+                    aria-label="Usage and pricing"
+                  >
+                    <UsagePricingDashboard
+                      authenticated={Boolean(sessionAccessToken)}
+                      localMetrics={localMetrics}
+                      onSignIn={onSignIn}
+                    />
+                  </div>
+                ) : null}
+
+                {activeMetricsTab === "cloud" ? (
+                  <div
+                    id="metrics-cloud-panel"
+                    className="dashboard-metrics-tab-panel"
+                    role="tabpanel"
+                    aria-label="Cloud and synchronization health"
+                  >
+                    <div className="dashboard-metrics-cloud-heading">
+                      <div>
+                        <span className="dashboard-panel-kicker">
+                          CLOUD CONTROL PLANE
+                        </span>
+                        <h3>Browser session health</h3>
+                        <p>
+                          These values describe dashboard synchronization only.
+                          Local prompts, responses, model files, and local token
+                          metrics are not uploaded.
                         </p>
                       </div>
                       <Button
-                        className="dashboard-metrics-connect-action"
-                        onClick={() => navigateMetricsTab("overview")}
+                        variant="outline"
+                        disabled={cloudRefreshing}
+                        onClick={() => void loadDashboard()}
                       >
-                        OPEN OVERVIEW
+                        {cloudRefreshing ? "Syncing cloud" : "Refresh cloud"}
                       </Button>
-                    </Card>
-                  ) : localMetricsError && !localMetrics ? (
-                <Card className="dashboard-metrics-connect-panel dashboard-metrics-error-panel">
-                  <div>
-                    <span className="dashboard-panel-kicker">METRICS UNAVAILABLE</span>
-                    <h3>UPDATE THE LOCAL OPENMODEL CLI</h3>
-                    <p>{localMetricsError}</p>
+                    </div>
+
+                    <div className="dashboard-cloud-metrics-grid">
+                      <Card className="dashboard-metric-card">
+                        <span>CLOUD API</span>
+                        <strong>{cloudStatus}</strong>
+                        <small>{getApiBaseUrl()}</small>
+                      </Card>
+                      <Card className="dashboard-metric-card">
+                        <span>SYNC ATTEMPTS</span>
+                        <strong>
+                          {formatMetricNumber(cloudMetrics.syncAttempts)}
+                        </strong>
+                        <small>
+                          {formatMetricNumber(cloudMetrics.failedSyncs)} FAILED
+                        </small>
+                      </Card>
+                      <Card className="dashboard-metric-card">
+                        <span>SYNC SUCCESS</span>
+                        <strong>{formatPercent(cloudSyncSuccessRate)}</strong>
+                        <small>
+                          {formatMetricNumber(cloudMetrics.successfulSyncs)}{" "}
+                          COMPLETE
+                        </small>
+                      </Card>
+                      <Card className="dashboard-metric-card">
+                        <span>CLOUD LATENCY</span>
+                        <strong>
+                          {formatDuration(cloudMetrics.lastLatencyMs)}
+                        </strong>
+                        <small>
+                          AVG {formatDuration(cloudAverageLatencyMs)}
+                        </small>
+                      </Card>
+                      <Card className="dashboard-metric-card">
+                        <span>GATEWAYS</span>
+                        <strong>
+                          {formatMetricNumber(gatewayRecords.length)}
+                        </strong>
+                        <small>REGISTRY ENTRIES</small>
+                      </Card>
+                      <Card className="dashboard-metric-card">
+                        <span>SESSION REMAINING</span>
+                        <strong>{formatUptime(sessionRemainingSeconds)}</strong>
+                        <small>COGNITO ACCESS TOKEN</small>
+                      </Card>
+                    </div>
                   </div>
-                  <DashboardCommand
-                    index="$"
-                    title="UPDATE OPENMODEL"
-                    command="npm install -g @wundercorp/openmodel@latest"
-                    copied={copiedCommand === "metrics-update-cli"}
-                    onCopy={() =>
-                      void copyCommand(
-                        "metrics-update-cli",
-                        "npm install -g @wundercorp/openmodel@latest",
-                      )
-                    }
-                  />
-                </Card>
-                  ) : (
-                    <>
-                  {localMetricsError ? (
-                    <div className="authentication-notice authentication-notice-error dashboard-notice">
-                      <span>METRICS_WARNING</span>
-                      <strong>{localMetricsError}</strong>
-                      <button
-                        type="button"
-                        onClick={() => void loadLocalMetricsSnapshot(true)}
-                      >
-                        RETRY
-                      </button>
-                    </div>
-                  ) : null}
-                  <div className="dashboard-metrics-split">
-                    <Card className="dashboard-metrics-panel">
-                      <div className="dashboard-panel-heading">
-                        <div>
-                          <span className="dashboard-panel-kicker">TOKEN MIX</span>
-                          <h3>PROMPT VS COMPLETION</h3>
-                        </div>
-                        <span className="dashboard-metrics-live-indicator">
-                          {(localInferenceMetrics?.activeRequests ?? 0) > 0
-                            ? "INFERENCE ACTIVE"
-                            : "IDLE"}
-                        </span>
-                      </div>
-
-                      <div className="dashboard-token-breakdown">
-                        <div>
-                          <span>PROMPT TOKENS</span>
-                          <strong>
-                            {formatMetricNumber(localInferenceMetrics?.promptTokens)}
-                          </strong>
-                          <small>{formatPercent(localPromptTokenShare)}</small>
-                        </div>
-                        <div className="dashboard-token-bar" aria-hidden="true">
-                          <span
-                            className="dashboard-token-bar-prompt"
-                            style={{ width: `${localPromptTokenShare}%` }}
-                          ></span>
-                        </div>
-                        <div>
-                          <span>COMPLETION TOKENS</span>
-                          <strong>
-                            {formatMetricNumber(localInferenceMetrics?.completionTokens)}
-                          </strong>
-                          <small>{formatPercent(localCompletionTokenShare)}</small>
-                        </div>
-                        <div className="dashboard-token-bar" aria-hidden="true">
-                          <span
-                            className="dashboard-token-bar-completion"
-                            style={{ width: `${localCompletionTokenShare}%` }}
-                          ></span>
-                        </div>
-                      </div>
-                    </Card>
-
-                    <Card className="dashboard-metrics-panel">
-                      <div className="dashboard-panel-heading">
-                        <div>
-                          <span className="dashboard-panel-kicker">LOCAL RUNTIME</span>
-                          <h3>INFERENCE ACTIVITY</h3>
-                        </div>
-                      </div>
-                      <dl className="dashboard-definition-list dashboard-metrics-definition-list">
-                        <div>
-                          <dt>ACTIVE REQUESTS</dt>
-                          <dd>
-                            {formatMetricNumber(localInferenceMetrics?.activeRequests)}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>SUCCESSFUL</dt>
-                          <dd>
-                            {formatMetricNumber(
-                              localInferenceMetrics?.successfulRequests,
-                            )}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>INSTALL JOBS</dt>
-                          <dd>
-                            {formatMetricNumber(localMetrics?.installs.active)} ACTIVE ·{" "}
-                            {formatMetricNumber(localMetrics?.installs.completed)} COMPLETE
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>LAST REQUEST</dt>
-                          <dd>
-                            {localInferenceMetrics?.lastRequestAt
-                              ? new Date(
-                                  localInferenceMetrics.lastRequestAt,
-                                ).toLocaleTimeString()
-                              : "NO REQUESTS YET"}
-                          </dd>
-                        </div>
-                      </dl>
-                    </Card>
-                  </div>
-
-                  <Card className="dashboard-metrics-table-panel">
-                    <div className="dashboard-panel-heading">
-                      <div>
-                        <span className="dashboard-panel-kicker">INFERENCE LOG</span>
-                        <h3>RECENT REQUESTS</h3>
-                      </div>
-                      <span className="dashboard-metrics-generated-at">
-                        UPDATED{" "}
-                        {localMetrics?.generatedAt
-                          ? new Date(localMetrics.generatedAt).toLocaleTimeString()
-                          : "--"}
-                      </span>
-                    </div>
-                    <div className="dashboard-metrics-request-header">
-                      <span>TIME</span>
-                      <span>MODEL</span>
-                      <span>RUNTIME</span>
-                      <span>TOKENS</span>
-                      <span>LATENCY</span>
-                      <span>SPEED</span>
-                      <span>STATUS</span>
-                    </div>
-                    {(localMetrics?.recentRequests.length ?? 0) === 0 ? (
-                      <div className="dashboard-table-empty">
-                        RUN A MODEL REQUEST TO START THE TRACKER
-                      </div>
-                    ) : (
-                      localMetrics?.recentRequests.slice(0, 20).map((request) => (
-                        <div className="dashboard-metrics-request-row" key={request.id}>
-                          <span>{new Date(request.completedAt).toLocaleTimeString()}</span>
-                          <code title={request.modelId}>{request.modelId}</code>
-                          <span>{request.runtimeId ?? "UNKNOWN"}</span>
-                          <strong>{formatMetricNumber(request.totalTokens)}</strong>
-                          <span>{formatDuration(request.latencyMs)}</span>
-                          <span>
-                            {formatMetricNumber(request.tokensPerSecond)} TOK/S
-                          </span>
-                          <span
-                            className={`dashboard-metrics-status dashboard-metrics-status-${request.status}`}
-                            title={request.error}
-                          >
-                            {request.status.toUpperCase()}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </Card>
-
-                  <Card className="dashboard-metrics-table-panel">
-                    <div className="dashboard-panel-heading">
-                      <div>
-                        <span className="dashboard-panel-kicker">MODEL BREAKDOWN</span>
-                        <h3>USAGE BY MODEL</h3>
-                      </div>
-                    </div>
-                    <div className="dashboard-metrics-model-header">
-                      <span>MODEL</span>
-                      <span>RUNTIME</span>
-                      <span>REQUESTS</span>
-                      <span>TOKENS</span>
-                      <span>AVG LATENCY</span>
-                      <span>AVG SPEED</span>
-                    </div>
-                    {(localMetrics?.models.byModel.length ?? 0) === 0 ? (
-                      <div className="dashboard-table-empty">
-                        NO MODEL USAGE RECORDED IN THIS SERVER SESSION
-                      </div>
-                    ) : (
-                      localMetrics?.models.byModel.map((modelMetric) => (
-                        <div
-                          className="dashboard-metrics-model-row"
-                          key={modelMetric.modelId}
-                        >
-                          <code title={modelMetric.modelId}>
-                            {modelMetric.modelId}
-                          </code>
-                          <span>{modelMetric.runtimeId ?? "UNKNOWN"}</span>
-                          <strong>{formatMetricNumber(modelMetric.requests)}</strong>
-                          <span>{formatMetricNumber(modelMetric.totalTokens)}</span>
-                          <span>{formatDuration(modelMetric.averageLatencyMs)}</span>
-                          <span>
-                            {formatMetricNumber(modelMetric.averageTokensPerSecond)} TOK/S
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </Card>
-                    </>
-                  )}
-                </div>
-              ) : null}
-
-              {activeMetricsTab === "external" ? (
-                <div
-                  id="metrics-external-panel"
-                  className="dashboard-metrics-tab-panel"
-                  role="tabpanel"
-                  aria-label="External usage and setup"
-                >
-                  <ExternalUsageDashboard
-                    connected={localApiConnected}
-                    localApiUrl={localApiUrl}
-                    localMetrics={localMetrics}
-                  />
-                </div>
-              ) : null}
-
-              {activeMetricsTab === "pricing" ? (
-                <div
-                  id="metrics-pricing-panel"
-                  className="dashboard-metrics-tab-panel"
-                  role="tabpanel"
-                  aria-label="Usage and pricing"
-                >
-              <UsagePricingDashboard
-                authenticated={Boolean(sessionAccessToken)}
-                localMetrics={localMetrics}
-                onSignIn={onSignIn}
-              />
-                </div>
-              ) : null}
-
-              {activeMetricsTab === "cloud" ? (
-                <div
-                  id="metrics-cloud-panel"
-                  className="dashboard-metrics-tab-panel"
-                  role="tabpanel"
-                  aria-label="Cloud and synchronization health"
-                >
-              <div className="dashboard-metrics-cloud-heading">
-                <div>
-                  <span className="dashboard-panel-kicker">CLOUD CONTROL PLANE</span>
-                  <h3>BROWSER SESSION HEALTH</h3>
-                  <p>
-                    These values describe dashboard synchronization only. Local prompts,
-                    responses, model files, and local token metrics are not uploaded.
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  disabled={cloudRefreshing}
-                  onClick={() => void loadDashboard()}
-                >
-                  {cloudRefreshing ? "SYNCING CLOUD" : "REFRESH CLOUD"}
-                </Button>
-              </div>
-
-              <div className="dashboard-cloud-metrics-grid">
-                <Card className="dashboard-metric-card">
-                  <span>CLOUD API</span>
-                  <strong>{cloudStatus}</strong>
-                  <small>{getApiBaseUrl()}</small>
-                </Card>
-                <Card className="dashboard-metric-card">
-                  <span>SYNC ATTEMPTS</span>
-                  <strong>{formatMetricNumber(cloudMetrics.syncAttempts)}</strong>
-                  <small>
-                    {formatMetricNumber(cloudMetrics.failedSyncs)} FAILED
-                  </small>
-                </Card>
-                <Card className="dashboard-metric-card">
-                  <span>SYNC SUCCESS</span>
-                  <strong>{formatPercent(cloudSyncSuccessRate)}</strong>
-                  <small>
-                    {formatMetricNumber(cloudMetrics.successfulSyncs)} COMPLETE
-                  </small>
-                </Card>
-                <Card className="dashboard-metric-card">
-                  <span>CLOUD LATENCY</span>
-                  <strong>{formatDuration(cloudMetrics.lastLatencyMs)}</strong>
-                  <small>AVG {formatDuration(cloudAverageLatencyMs)}</small>
-                </Card>
-                <Card className="dashboard-metric-card">
-                  <span>GATEWAYS</span>
-                  <strong>{formatMetricNumber(gatewayRecords.length)}</strong>
-                  <small>REGISTRY ENTRIES</small>
-                </Card>
-                <Card className="dashboard-metric-card">
-                  <span>SESSION REMAINING</span>
-                  <strong>{formatUptime(sessionRemainingSeconds)}</strong>
-                  <small>COGNITO ACCESS TOKEN</small>
-                </Card>
-              </div>
-                </div>
-              ) : null}
+                ) : null}
               </section>
             </>
           ) : null}
@@ -3541,7 +3906,7 @@ ${dokuGenerateCommand}`,
                 <div>
                   <span className="dashboard-section-index">05</span>
                   <Badge>LIVE CLOUD REGISTRY</Badge>
-                  <h2>AVAILABLE GATEWAYS</h2>
+                  <h2>Available gateways</h2>
                   <p>
                     Gateways tell the CLI how to resolve and download a model.
                     Choose one, then use its scheme in <code>om pull</code>.
@@ -3575,9 +3940,13 @@ ${dokuGenerateCommand}`,
                   <span>CAPABILITIES</span>
                 </div>
                 {loadState === "loading" && gatewayRecords.length === 0 ? (
-                  <div className="dashboard-table-empty">LOADING REGISTRY...</div>
+                  <div className="dashboard-table-empty">
+                    LOADING REGISTRY...
+                  </div>
                 ) : gatewayRecords.length === 0 ? (
-                  <div className="dashboard-table-empty">NO GATEWAYS RETURNED</div>
+                  <div className="dashboard-table-empty">
+                    NO GATEWAYS RETURNED
+                  </div>
                 ) : (
                   gatewayRecords.map((gateway) => (
                     <div className="dashboard-table-row" key={gateway.id}>
@@ -3602,7 +3971,7 @@ ${dokuGenerateCommand}`,
                 <div>
                   <span className="dashboard-section-index">06</span>
                   <Badge>AUTHENTICATED USER</Badge>
-                  <h2>ACCOUNT AND SESSION</h2>
+                  <h2>Account and session</h2>
                   <p>
                     Identity details come from the verified Cognito access token
                     and the OpenModel cloud API.
@@ -3614,8 +3983,10 @@ ${dokuGenerateCommand}`,
                 <Card className="dashboard-panel">
                   <div className="dashboard-panel-heading">
                     <div>
-                      <span className="dashboard-panel-kicker">IDENTITY::VERIFIED</span>
-                      <h3>ACCOUNT</h3>
+                      <span className="dashboard-panel-kicker">
+                        IDENTITY::VERIFIED
+                      </span>
+                      <h3>Account</h3>
                     </div>
                     <span className="dashboard-online-indicator">ONLINE</span>
                   </div>
@@ -3631,7 +4002,9 @@ ${dokuGenerateCommand}`,
                     </div>
                     <div>
                       <dt>USER ID</dt>
-                      <dd>{dashboardUser?.id ?? localUser?.sub ?? "UNKNOWN"}</dd>
+                      <dd>
+                        {dashboardUser?.id ?? localUser?.sub ?? "UNKNOWN"}
+                      </dd>
                     </div>
                     <div>
                       <dt>CLIENT ID</dt>
@@ -3643,7 +4016,9 @@ ${dokuGenerateCommand}`,
                     <span>GROUPS</span>
                     <div className="dashboard-tags">
                       {displayedGroups.length > 0 ? (
-                        displayedGroups.map((group) => <code key={group}>{group}</code>)
+                        displayedGroups.map((group) => (
+                          <code key={group}>{group}</code>
+                        ))
                       ) : (
                         <code>DEFAULT</code>
                       )}
@@ -3689,7 +4064,8 @@ ${
 $ curl ${localApiUrl}/v1/models
 ${
   localApiConnected
-    ? localModels.map((model) => model.id).join("\n") || "no local models returned"
+    ? localModels.map((model) => model.id).join("\n") ||
+      "no local models returned"
     : "not requested by this browser session"
 }`}</CodeBlock>
                 </Card>
@@ -3777,7 +4153,7 @@ function SiteFooter() {
               target="_blank"
               rel="noopener noreferrer"
             >
-              <DiscordIcon />
+              <PhosphorIcon icon={DiscordLogoIcon} size={21} weight="fill" />
               <span>JOIN THE DISCORD</span>
               <span aria-hidden="true">↗</span>
             </a>
@@ -3813,8 +4189,8 @@ function SiteFooter() {
 
       <div className="footer-bottom">
         <a className="footer-brand" href="/">
-          <span aria-hidden="true">&gt;_</span>
-          <span>OPENMODEL.SH</span>
+          <span aria-hidden="true">OM</span>
+          <span>OpenModel</span>
         </a>
 
         <span className="footer-attribution">
@@ -3830,7 +4206,7 @@ function SiteFooter() {
             aria-label="Follow WunderCorp on X"
             title="WunderCorp on X"
           >
-            <XIcon />
+            <PhosphorIcon icon={XLogoIcon} size={17} weight="bold" />
           </a>
 
           <a
@@ -3841,7 +4217,7 @@ function SiteFooter() {
             aria-label="View WunderCorp on GitHub"
             title="WunderCorp on GitHub"
           >
-            <GithubIcon />
+            <PhosphorIcon icon={GithubLogoIcon} size={19} weight="fill" />
           </a>
         </div>
       </div>
@@ -3849,44 +4225,3 @@ function SiteFooter() {
   );
 }
 
-function DiscordIcon() {
-  return (
-    <svg
-      width="21"
-      height="21"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d="M20.317 4.369a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.444.864-.608 1.249a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.249.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.579.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.095.252-.194.371-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03ZM8.02 15.332c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.418 2.157-2.418 1.21 0 2.176 1.094 2.157 2.418 0 1.334-.956 2.419-2.157 2.419Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.418 2.157-2.418 1.21 0 2.176 1.094 2.157 2.418 0 1.334-.947 2.419-2.157 2.419Z" />
-    </svg>
-  );
-}
-
-function XIcon() {
-  return (
-    <svg
-      width="17"
-      height="17"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.657l-5.214-6.817-5.967 6.817H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77Z" />
-    </svg>
-  );
-}
-
-function GithubIcon() {
-  return (
-    <svg
-      width="19"
-      height="19"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.2 1.77 1.2 1.04 1.77 2.72 1.26 3.38.96.1-.75.4-1.26.74-1.55-2.57-.3-5.28-1.29-5.28-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.47.11-3.05 0 0 .97-.31 3.16 1.18A10.9 10.9 0 0 1 12 6.12c.98 0 1.95.13 2.87.39 2.19-1.49 3.15-1.18 3.15-1.18.64 1.58.24 2.76.12 3.05.74.81 1.18 1.83 1.18 3.09 0 4.42-2.71 5.39-5.29 5.68.42.36.79 1.07.79 2.16v3.24c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z" />
-    </svg>
-  );
-}

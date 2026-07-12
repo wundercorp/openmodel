@@ -120,6 +120,32 @@ function packageVersionExists(packageName, packageVersion, registryUrl) {
   fail(`Unable to query ${packageName}@${packageVersion} from ${registryUrl}: ${result.stderr.trim() || `npm exited with status ${result.status}`}`);
 }
 
+function publishedPackageMatchesWorkspace(workspaceName, registryUrl) {
+  const result = runCommand(
+    process.execPath,
+    [
+      path.join(repositoryRootDirectory, "scripts/verify-published-package-contents.mjs"),
+      "--workspace",
+      workspaceName,
+      "--registry",
+      registryUrl,
+    ],
+    { captureOutput: true },
+  );
+
+  if (result.status === 0) {
+    process.stdout.write(result.stdout);
+    return true;
+  }
+
+  if (result.status === 3) {
+    process.stderr.write(result.stderr);
+    return false;
+  }
+
+  fail(result.stderr.trim() || `Unable to compare ${workspaceName} with the published package.`);
+}
+
 function publishPackage(workspaceName, packageManifest, configuration) {
   const publishArguments = [
     "publish",
@@ -182,20 +208,26 @@ function main() {
     configuration.registryUrl,
   );
 
-  if (gatewaySdkVersionExists && cliVersionExists) {
-    fail("All selected npm package versions already exist. Bump the package that changed, or skip npm publication.");
-  }
-
   if (gatewaySdkVersionExists) {
+    if (!publishedPackageMatchesWorkspace("@wundercorp/openmodel-gateway-sdk", configuration.registryUrl)) {
+      fail(`${gatewaySdkPackage.name}@${gatewaySdkPackage.version} already exists, but the local SDK contents differ. Bump the SDK version before publishing.`);
+    }
     process.stdout.write(`Reusing published dependency ${gatewaySdkPackage.name}@${gatewaySdkPackage.version}\n`);
   } else {
     publishPackage("@wundercorp/openmodel-gateway-sdk", gatewaySdkPackage, configuration);
   }
 
   if (cliVersionExists) {
+    if (!publishedPackageMatchesWorkspace("@wundercorp/openmodel", configuration.registryUrl)) {
+      fail(`${cliPackage.name}@${cliPackage.version} already exists, but the local CLI contents differ. Run npm run version:bump -- patch --package cli before publishing.`);
+    }
     process.stdout.write(`Reusing published package ${cliPackage.name}@${cliPackage.version}\n`);
   } else {
     publishPackage("@wundercorp/openmodel", cliPackage, configuration);
+  }
+
+  if (gatewaySdkVersionExists && cliVersionExists) {
+    process.stdout.write("All selected npm package versions already exist and match the local package contents; no npm publication was needed.\n");
   }
 }
 

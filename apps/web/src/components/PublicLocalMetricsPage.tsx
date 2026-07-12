@@ -64,15 +64,15 @@ export function PublicLocalMetricsPage({
     : 0;
 
   return (
-    <main className="dashboard-page dashboard-public-metrics-page">
+    <main className="bui-root dashboard-page dashboard-public-metrics-page">
       <header className="dashboard-public-metrics-header">
         <button className="dashboard-auth-brand" type="button" onClick={onHome}>
-          <span aria-hidden="true">&gt;_</span>
-          <span>OPENMODEL.SH</span>
+          <span aria-hidden="true">OM</span>
+          <span>OpenModel</span>
         </button>
         <div>
-          <Button variant="outline" onClick={onHome}>VIEW SITE</Button>
-          <Button onClick={onSignIn}>SIGN IN</Button>
+          <Button variant="outline" onClick={onHome}>View site</Button>
+          <Button onClick={onSignIn}>Sign in</Button>
         </div>
       </header>
 
@@ -80,7 +80,7 @@ export function PublicLocalMetricsPage({
         <div className="dashboard-page-heading">
           <div>
             <Badge>LOCAL OBSERVABILITY</Badge>
-            <h1>OFFLINE METRICS</h1>
+            <h1>Offline metrics</h1>
             <p>
               Connect directly to the local OpenModel service without signing in.
               Cloud allowance, pricing, and synchronization stay disabled until authentication.
@@ -174,7 +174,7 @@ export function PublicLocalMetricsPage({
           <div className="dashboard-panel-heading">
             <div>
               <span className="dashboard-panel-kicker">INFERENCE LOG</span>
-              <h3>RECENT LOCAL REQUESTS</h3>
+              <h3>Recent local requests</h3>
             </div>
           </div>
           <div className="dashboard-metrics-request-header">

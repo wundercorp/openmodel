@@ -155,7 +155,7 @@ Then run:
 ./deploy.sh --publish-npm --yes
 ```
 
-The gateway SDK is checked before the CLI. An already-published exact dependency version is reused, while missing package versions are published. Deployment fails when every selected package version already exists.
+The gateway SDK is checked before the CLI. Missing versions are published. When an exact version already exists, OpenModel compares the local packed files with the published tarball. Matching packages are safely reused. Differing package contents trigger an automatic patch increment for only the affected package; an SDK increment also increments the CLI because the CLI pins the SDK exactly. The deployment then continues with the newly selected unpublished version.
 
 `deploy.sh` publishes the versions already recorded in the package manifests; it does not change versions. Use the separate release incrementer before deployment when a new npm version is required:
 

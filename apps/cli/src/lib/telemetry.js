@@ -92,7 +92,11 @@ function normalizeProviderModel(provider, model, source) {
   const normalizedModel = normalizeText(model, 'unknown');
   const explicitProvider = normalizeText(provider).toLowerCase();
   if (explicitProvider) {
-    return { provider: explicitProvider, model: normalizedModel };
+    const providerPrefix = `${explicitProvider}/`;
+    const normalizedModelValue = normalizedModel.toLowerCase().startsWith(providerPrefix)
+      ? normalizedModel.slice(providerPrefix.length)
+      : normalizedModel;
+    return { provider: explicitProvider, model: normalizedModelValue };
   }
   if (normalizedModel.includes('/')) {
     const separatorIndex = normalizedModel.indexOf('/');
@@ -256,6 +260,9 @@ export async function readTelemetryEvents(options = {}) {
     }
     try {
       const event = JSON.parse(line);
+      const providerModel = normalizeProviderModel(event.provider, event.model, event.source);
+      event.provider = providerModel.provider;
+      event.model = providerModel.model;
       const occurredAtTimestamp = Date.parse(event.occurredAt);
       if (Number.isFinite(sinceTimestamp) && occurredAtTimestamp < sinceTimestamp) {
         continue;

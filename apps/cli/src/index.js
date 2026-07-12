@@ -358,9 +358,10 @@ async function telemetrySetupCommand(positionals, flags) {
     try {
       await runProcess('bs', builderStudioArguments);
     } catch (error) {
-      throw new Error(`BuilderStudio native telemetry requires @wundercorp/bs 0.3.15 or newer. Upgrade with: npm install --global @wundercorp/bs@latest. ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`BuilderStudio native telemetry requires @wundercorp/bs 0.3.16 or newer. Upgrade with: npm install --global @wundercorp/bs@latest. ${error instanceof Error ? error.message : String(error)}`);
     }
-    process.stdout.write(`BuilderStudio is configured. Start OpenModel with om serve --port ${port}, then run a normal bs model-backed command.\n`);
+    await runProcess('bs', ['telemetry', 'status']);
+    process.stdout.write(`BuilderStudio is configured. Start OpenModel with om serve --port ${port}, then run a normal bs model-backed command. A running older BS daemon is restarted automatically.\n`);
     return;
   }
   if (getFlag(flags, 'launch', false)) {

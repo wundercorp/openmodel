@@ -1,6 +1,6 @@
 # openmodel.sh
 
-OpenModel is a gateway-first local model runtime distributed as `@wundercorp/openmodel`, with a shadcn-styled website and a separately deployable cloud API.
+OpenModel is a gateway-first local model runtime distributed as `@wundercorp/openmodel`, with a baseui.sh-powered dashboard, a separate marketing site, and a separately deployable cloud API.
 
 <img width="1138" height="720" alt="Bazaart_C1455751-0317-490B-9B26-0165F4BB215E" src="https://github.com/user-attachments/assets/84f5567c-8fbb-4bc8-b42a-32a9e9d92a11" />
 
@@ -20,6 +20,7 @@ It provides:
 - AWS S3 and CloudFront deployment for the production website
 - Optional Cloudflare Worker and Pages deployment
 - Static website deployment through Docker or Kubernetes
+- An `@wundercorp/baseui`-powered dashboard, typed design tokens, Phosphor-backed icons, and a living component catalogue
 
 ## Repository layout
 
@@ -78,6 +79,38 @@ The local server supports:
 - `POST /api/generate`
 
 The web dashboard uses the catalog and install-job endpoints for a one-click starter-model download with local progress reporting. Its Metrics route remains usable without authentication for local request counts, estimated token usage, latency, throughput, runtime activity, per-model usage, and recent requests. Authenticated sessions also load the Wundership monthly allowance, provider/model pricing estimates, local-versus-cloud cost comparisons, usage and cost charts, and idempotent usage synchronization. Installation and metrics-reset requests remain restricted to configured browser origins.
+
+## baseui.sh design system
+
+The dashboard consumes the independently published [`@wundercorp/baseui`](https://www.npmjs.com/package/@wundercorp/baseui) package. The component library is no longer copied into this repository or linked as a workspace package.
+
+Install dependencies normally from the repository root:
+
+```bash
+npm install
+```
+
+The web workspace imports the package stylesheet once in `apps/web/src/main.tsx`:
+
+```tsx
+import "@wundercorp/baseui/styles.css";
+```
+
+Shared dashboard primitives are exposed through `apps/web/src/components/ui.tsx`, which keeps product imports stable while resolving them to the external package. The dashboard uses baseui.sh buttons, cards, badges, code blocks, semantic icons, tokens, and the full Phosphor passthrough entry point. The marketing home page retains its existing visual language.
+
+Run the web app and open `/baseui` to review the component catalogue in the OpenModel application:
+
+```bash
+npm run dev:web
+```
+
+The reusable library itself lives at:
+
+```text
+https://github.com/wundercorp/baseui
+```
+
+See `docs/baseui-integration.md`, `docs/baseui-design-language.md`, and `docs/baseui-validation.md` for the integration boundary and dashboard-specific usage rules.
 
 ## Gateway interoperability
 
@@ -187,6 +220,8 @@ Deploy and explicitly publish the npm packages:
 
 ```bash
 ./deploy.sh --publish-npm --yes
+
+When package contents changed but the current version is already on npm, deployment automatically selects an unpublished patch version for the affected package.
 ```
 
 Initialize and push the source repository separately:
