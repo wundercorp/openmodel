@@ -1822,9 +1822,6 @@ function DashboardPage({
             onClick={navigateHome}
             title="Open OpenModel.sh"
           >
-            <span className="dashboard-sidebar-brand-mark" aria-hidden="true">
-              OM
-            </span>
             <span className="dashboard-sidebar-brand-copy">
               <strong>OpenModel</strong>
               <small>Local control plane</small>
