@@ -3276,7 +3276,7 @@ ${dokuGenerateCommand}`,
                   >
                     <Card className="dashboard-metrics-privacy">
                       <span className="dashboard-metrics-privacy-mark">
-                        LOCAL_ONLY
+                        🔒
                       </span>
                       <div>
                         <strong>METRICS STAY ON THIS COMPUTER</strong>
