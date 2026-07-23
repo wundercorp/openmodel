@@ -1,0 +1,167 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OpenModel GPU Capacity API",
+    "version": "1.0.0",
+    "description": "Provider GPU inventory shared by api.openmodel.sh and api.walton.bot."
+  },
+  "servers": [
+    { "url": "https://api.openmodel.sh", "description": "Canonical API" },
+    { "url": "https://api.walton.bot", "description": "Walton API alias" }
+  ],
+  "paths": {
+    "/v1/capacity/gpu": {
+      "get": {
+        "summary": "List published GPU capacity",
+        "responses": {
+          "200": {
+            "description": "Published listings",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityListResponse" } } }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a GPU capacity listing",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacitySubmission" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Created listing",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityResponse" } } }
+          }
+        }
+      }
+    },
+    "/v1/capacity/gpu/mine": {
+      "get": {
+        "summary": "List the authenticated provider's GPU listings",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Provider listings",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityListResponse" } } }
+          }
+        }
+      }
+    },
+    "/v1/capacity/gpu/{listingId}": {
+      "parameters": [{ "in": "path", "name": "listingId", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+      "get": {
+        "summary": "Read an owned GPU listing",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Listing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityResponse" } } } } }
+      },
+      "put": {
+        "summary": "Update an owned GPU listing",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacitySubmission" } } } },
+        "responses": { "200": { "description": "Updated listing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityResponse" } } } } }
+      }
+    },
+    "/v1/capacity/gpu/{listingId}/publish": {
+      "post": {
+        "summary": "Publish an owned listing",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "in": "path", "name": "listingId", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Published listing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityResponse" } } } } }
+      }
+    },
+    "/v1/capacity/gpu/{listingId}/pause": {
+      "post": {
+        "summary": "Pause an owned listing",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "in": "path", "name": "listingId", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Paused listing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityResponse" } } } } }
+      }
+    },
+    "/v1/capacity/gpu/{listingId}/heartbeat": {
+      "post": {
+        "summary": "Update provider availability",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "in": "path", "name": "listingId", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "availableGpuCount": { "type": "integer", "minimum": 0 },
+                  "runtimeStatus": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Updated listing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityResponse" } } } } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    },
+    "schemas": {
+      "GpuCapacitySubmission": {
+        "type": "object",
+        "required": ["title", "gpuModel", "gpuCount", "vramGbPerGpu", "pricePerGpuHour"],
+        "properties": {
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "gpuModel": { "type": "string" },
+          "gpuCount": { "type": "integer", "minimum": 1 },
+          "availableGpuCount": { "type": "integer", "minimum": 0 },
+          "vramGbPerGpu": { "type": "number", "exclusiveMinimum": 0 },
+          "allocationMode": { "type": "string", "enum": ["EXCLUSIVE", "MIG", "TIME_SLICED"] },
+          "migProfile": { "type": "string" },
+          "cudaVersion": { "type": "string" },
+          "driverVersion": { "type": "string" },
+          "runtime": { "type": "string" },
+          "connectionMode": { "type": "string", "enum": ["OPENMODEL_API", "HTTPS_API", "SSH", "WIREGUARD", "TAILSCALE", "MANUAL"] },
+          "endpointUrl": { "type": "string", "format": "uri" },
+          "locationLabel": { "type": "string" },
+          "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+          "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+          "pricePerGpuHour": { "type": "number", "minimum": 0 },
+          "currency": { "type": "string", "default": "USD" },
+          "minimumHours": { "type": "number", "exclusiveMinimum": 0 },
+          "maxSessionHours": { "type": "number", "exclusiveMinimum": 0 },
+          "checkoutUrl": { "type": "string", "format": "uri" },
+          "providerInstructions": { "type": "string" },
+          "publish": { "type": "boolean", "default": false }
+        }
+      },
+      "GpuCapacityListing": {
+        "allOf": [
+          { "$ref": "#/components/schemas/GpuCapacitySubmission" },
+          {
+            "type": "object",
+            "required": ["id", "ownerId", "ownerDisplayName", "status", "createdAt", "updatedAt"],
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "ownerId": { "type": "string" },
+              "ownerDisplayName": { "type": "string" },
+              "status": { "type": "string", "enum": ["DRAFT", "PUBLISHED", "PAUSED"] },
+              "lastHeartbeatAt": { "type": ["string", "null"], "format": "date-time" },
+              "runtimeStatus": { "type": "string" },
+              "createdAt": { "type": "string", "format": "date-time" },
+              "updatedAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        ]
+      },
+      "GpuCapacityResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "$ref": "#/components/schemas/GpuCapacityListing" } }
+      },
+      "GpuCapacityListResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/GpuCapacityListing" } } }
+      }
+    }
+  }
+}

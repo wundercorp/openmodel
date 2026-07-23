@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
 set -Eeuo pipefail
 IFS=$'\n\t'
 

@@ -231,7 +231,7 @@ curl http://127.0.0.1:8787/health
 curl http://127.0.0.1:8787/v1/gateways
 ```
 
-The protected endpoints continue to validate real RS256 access tokens from the configured issuer. For Cognito, set `AUTH_AUDIENCE` to the same generated app client ID used by the web application and obtain an access token whose `client_id` matches that value. After changing the app client ID, sign out and sign in again so the browser does not reuse a token from the previous client:
+The protected endpoints continue to validate real RS256 access tokens from the configured issuer. For Cognito, set `AUTH_AUDIENCE` to a comma-separated list containing every approved app client ID. Include the generated web app client ID and the CLI device-flow app client ID; otherwise `om login` can succeed while protected capacity requests still return HTTP 401. After changing the accepted client IDs, sign out and sign in again so the browser and CLI do not reuse tokens from the previous clients:
 
 ```bash
 curl http://127.0.0.1:8787/v1/me \

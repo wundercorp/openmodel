@@ -13,6 +13,14 @@ import { printOpenModelBanner } from './ui/banner.mjs';
 import { estimateCloudCost, fetchUsageSummary, submitUsageEvents } from './lib/wundership-pricing.js';
 import { clearUsageEvents, readUsageEvents } from './lib/usage-ledger.js';
 import {
+  capacityHelpText,
+  changeGpuCapacityStatus,
+  detectNvidiaGpus,
+  exposeGpuCapacity,
+  formatGpuCapacityTable,
+  listGpuCapacity
+} from './lib/capacity.js';
+import {
   appendTelemetryEvents,
   markTelemetryEventsSynced,
   readTelemetryEvents,
@@ -41,6 +49,7 @@ Commands:
   setup <claude-code|codex|openrouter|bs> [--launch] [--port 11435]
   telemetry setup <claude-code|codex|openrouter|bs> [--launch] [--port 11435]
   telemetry summary|events|sync|emit
+  capacity expose|list|mine|publish|pause|heartbeat|detect
   version
   help
 
@@ -77,7 +86,43 @@ export async function main(argv) {
   if (command === 'usage') return usageCommand(positionals, flags);
   if (command === 'setup') return telemetrySetupCommand(positionals, flags);
   if (command === 'telemetry') return telemetryCommand(positionals, flags);
+  if (command === 'capacity') return capacityCommand(positionals, flags);
   throw new Error(`Unknown command "${command}". Run om help.`);
+}
+
+
+async function capacityCommand(positionals, flags) {
+  const action = String(positionals[0] ?? 'help').toLowerCase();
+  if (action === 'help' || action === '--help' || action === '-h') {
+    process.stdout.write(capacityHelpText());
+    return;
+  }
+  if (action === 'detect') {
+    const detected = await detectNvidiaGpus();
+    process.stdout.write(`${JSON.stringify(detected ?? { detected: false }, null, 2)}\n`);
+    return;
+  }
+  if (action === 'expose' || action === 'create') {
+    const result = await exposeGpuCapacity(flags);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+  if (action === 'list') {
+    const result = await listGpuCapacity({ mine: false, apiUrl: getFlag(flags, 'api-url') });
+    process.stdout.write(`${formatGpuCapacityTable(result.listings)}\n`);
+    return;
+  }
+  if (action === 'mine' || action === 'status') {
+    const result = await listGpuCapacity({ mine: true, apiUrl: getFlag(flags, 'api-url') });
+    process.stdout.write(`${formatGpuCapacityTable(result.listings)}\n`);
+    return;
+  }
+  if (['publish', 'pause', 'heartbeat'].includes(action)) {
+    const result = await changeGpuCapacityStatus(positionals[1], action, flags);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+  throw new Error('Usage: om capacity expose|list|mine|publish|pause|heartbeat|detect');
 }
 
 async function pullCommand(positionals, flags) {

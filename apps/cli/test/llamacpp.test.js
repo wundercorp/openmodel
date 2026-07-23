@@ -21,8 +21,7 @@ test('llama.cpp generation runs as a captured single turn', () => {
   assert.ok(argumentsList.includes('--single-turn'));
   assert.ok(argumentsList.includes('--simple-io'));
   assert.ok(argumentsList.includes('--no-display-prompt'));
-  assert.ok(argumentsList.includes('--no-show-timings'));
-  assert.ok(argumentsList.includes('--log-disable'));
+  assert.ok(!argumentsList.includes('--log-disable'));
   assert.deepEqual(argumentsList.slice(-2), ['--color', 'off']);
 });
 

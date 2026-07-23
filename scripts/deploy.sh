@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
 set -Eeuo pipefail
 IFS=$'\n\t'
 
@@ -148,9 +151,16 @@ main() {
   run_git_steps
 
   if [[ "$deployment_provider" == "aws" ]]; then
-    exec "$repository_root_directory/scripts/deploy-aws.sh" "${provider_arguments[@]}"
+    if (( ${#provider_arguments[@]} > 0 )); then
+      exec bash "$repository_root_directory/scripts/deploy-aws.sh" "${provider_arguments[@]}"
+    fi
+    exec bash "$repository_root_directory/scripts/deploy-aws.sh"
   fi
-  exec "$repository_root_directory/scripts/deploy-cloudflare.sh" "${provider_arguments[@]}"
+
+  if (( ${#provider_arguments[@]} > 0 )); then
+    exec bash "$repository_root_directory/scripts/deploy-cloudflare.sh" "${provider_arguments[@]}"
+  fi
+  exec bash "$repository_root_directory/scripts/deploy-cloudflare.sh"
 }
 
 main "$@"

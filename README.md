@@ -13,6 +13,8 @@ It provides:
 - `om pull` for Hugging Face GGUF files, direct artifact URLs, Ollama model references, and contributed gateways
 - `om run` for llama.cpp and Ollama runtimes
 - `om serve` with OpenAI-compatible and Ollama-compatible local endpoints
+- `om capacity` for detecting, listing, publishing, pausing, and heartbeating provider GPU capacity
+- A dashboard GPU-capacity page with provider listings and public availability visualization
 - Explicit gateway package registration with a versioned SDK contract
 - OIDC device login for the CLI through `auth.wundercorp.co`
 - OIDC Authorization Code with PKCE for the website
@@ -79,6 +81,34 @@ The local server supports:
 - `POST /api/generate`
 
 The web dashboard uses the catalog and install-job endpoints for a one-click starter-model download with local progress reporting. Its Metrics route remains usable without authentication for local request counts, estimated token usage, latency, throughput, runtime activity, per-model usage, and recent requests. Authenticated sessions also load the Wundership monthly allowance, provider/model pricing estimates, local-versus-cloud cost comparisons, usage and cost charts, and idempotent usage synchronization. Installation and metrics-reset requests remain restricted to configured browser origins.
+
+## GPU capacity marketplace
+
+OpenModel now owns the GPU-provider workflow that was previously embedded in the Walton mobile app. Providers can expose hardware from either the CLI or the authenticated dashboard, while buyers can inspect published availability through the dashboard or public API.
+
+Fast CLI setup:
+
+```bash
+om login
+om capacity detect
+om capacity expose \
+  --price-hour 0.75 \
+  --endpoint https://gpu-provider.example.com/v1
+om capacity heartbeat --available-gpus 1 --runtime-status ready
+```
+
+`om capacity expose` uses `nvidia-smi` when available to detect GPU model, count, VRAM, and driver version. Explicit flags are available for mixed or non-NVIDIA systems.
+
+The dashboard route is **GPU Capacity**. It supports creating draft or published listings, seeing owned listings, publishing or pausing them, and visualizing public available capacity.
+
+The API contract is available under both hostnames when both custom domains point at the same deployment:
+
+```text
+https://api.openmodel.sh/v1/capacity/gpu
+https://api.walton.bot/v1/capacity/gpu
+```
+
+Provider management requires the same OpenModel bearer identity used by `om login` and the web dashboard. The public listing endpoint does not require authentication. Configure `GPU_CAPACITY_TABLE` for AWS or `GPU_CAPACITY_REGISTRY` for Cloudflare. See `docs/gpu-capacity.md`.
 
 ## baseui.sh design system
 
@@ -151,6 +181,8 @@ OPENMODEL_AUTH_CLIENT_ID
 OPENMODEL_AUTH_AUDIENCE
 OPENMODEL_CLOUD_API_URL
 ```
+
+Expired CLI access tokens are refreshed automatically when a refresh token is available. Protected API deployments must accept the CLI app client ID in `AUTH_AUDIENCE` in addition to the web app client ID.
 
 The website uses Authorization Code with PKCE and stores access tokens in session storage rather than local storage.
 

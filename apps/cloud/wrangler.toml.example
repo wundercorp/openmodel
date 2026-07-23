@@ -5,10 +5,15 @@ workers_dev = true
 
 [vars]
 AUTH_ISSUER = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_EXAMPLE"
-AUTH_AUDIENCE = "replace-with-cognito-app-client-id"
-ALLOWED_ORIGINS = "https://openmodel.sh,http://localhost:5173"
+AUTH_AUDIENCE = "replace-with-web-client-id,replace-with-cli-client-id"
+ALLOWED_ORIGINS = "https://openmodel.sh,https://www.openmodel.sh,https://walton.bot,https://www.walton.bot,http://localhost:5173"
 
 [[kv_namespaces]]
 binding = "GATEWAY_REGISTRY"
 id = "replace-with-production-kv-id"
 preview_id = "replace-with-preview-kv-id"
+
+[[kv_namespaces]]
+binding = "GPU_CAPACITY_REGISTRY"
+id = "replace-with-production-gpu-capacity-kv-id"
+preview_id = "replace-with-preview-gpu-capacity-kv-id"

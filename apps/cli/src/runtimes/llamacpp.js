@@ -24,8 +24,6 @@ function buildGenerateArguments(modelPath, prompt, options = {}) {
     '--single-turn',
     '--simple-io',
     '--no-display-prompt',
-    '--no-show-timings',
-    '--log-disable',
     '--color', 'off'
   ];
 }

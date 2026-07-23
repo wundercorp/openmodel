@@ -17,6 +17,7 @@ It gives you one command, `om`, for working with GGUF artifacts, existing Ollama
 - Add third-party model gateways without changing the OpenModel core
 - Keep downloaded models, manifests, aliases, plugins, and authentication data in an isolated OpenModel data directory
 - Authenticate with the OpenModel cloud layer through OAuth device authorization
+- Detect and expose provider GPU capacity through `api.openmodel.sh` with `api.walton.bot` fallback
 
 ## Requirements
 
@@ -98,9 +99,43 @@ om run qwen2.5:3b "Explain gateway interoperability."
 | `om whoami` | Show the authenticated cloud identity |
 | `om logout` | Remove locally stored authentication tokens |
 | `om doctor` | Check runtimes, storage, and gateways |
+| `om capacity detect` | Detect NVIDIA GPU model, count, VRAM, and driver |
+| `om capacity expose --price-hour N` | Create a provider GPU listing |
+| `om capacity list` | Browse public GPU capacity |
+| `om capacity mine` | Show your provider listings |
+| `om capacity publish [id]` | Publish a draft or paused listing |
+| `om capacity pause [id]` | Pause a listing |
+| `om capacity heartbeat [id]` | Update availability and runtime status |
 | `om help` | Show CLI help |
 
 Aliases are available for `om list` as `om ls` and `om remove` as `om rm`.
+
+## Expose GPU capacity
+
+Authenticate once and inspect detected NVIDIA hardware:
+
+```bash
+om login
+om capacity detect
+```
+
+Create and publish a listing. GPU model, count, VRAM, and driver are detected through `nvidia-smi` when possible:
+
+```bash
+om capacity expose \
+  --price-hour 0.75 \
+  --endpoint https://gpu-provider.example.com/v1 \
+  --allocation EXCLUSIVE \
+  --location "Northern Virginia"
+```
+
+Keep the dashboard availability current:
+
+```bash
+om capacity heartbeat --available-gpus 1 --runtime-status ready
+```
+
+The most recently created listing is used when an ID is omitted. Use `--draft` to create without publishing, and use `--dry-run` to inspect the payload without contacting the API. `OPENMODEL_CLOUD_API_URL` defaults to `https://api.openmodel.sh`; `OPENMODEL_CLOUD_API_FALLBACK_URL` defaults to `https://api.walton.bot`. Both hostnames must be configured to route to the same deployed API for seamless failover.
 
 ## Model references
 
@@ -253,7 +288,10 @@ OPENMODEL_AUTH_ISSUER
 OPENMODEL_AUTH_CLIENT_ID
 OPENMODEL_AUTH_AUDIENCE
 OPENMODEL_CLOUD_API_URL
+OPENMODEL_CLOUD_API_FALLBACK_URL
 ```
+
+OpenModel refreshes an expired access token automatically when the identity provider issued a refresh token. The API deployment must include the CLI app client ID in its comma-separated `AUTH_AUDIENCE` value; otherwise login succeeds but protected commands such as `om capacity expose` return HTTP 401.
 
 ## Data directory
 

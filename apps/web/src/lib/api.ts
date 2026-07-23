@@ -386,6 +386,75 @@ export interface GatewayRecord {
   submittedAt?: string;
 }
 
+export type GpuCapacityStatus = "DRAFT" | "PUBLISHED" | "PAUSED";
+export type GpuAllocationMode = "EXCLUSIVE" | "MIG" | "TIME_SLICED";
+export type GpuConnectionMode =
+  | "OPENMODEL_API"
+  | "HTTPS_API"
+  | "SSH"
+  | "WIREGUARD"
+  | "TAILSCALE"
+  | "MANUAL";
+
+export interface GpuCapacityListing {
+  id: string;
+  ownerId: string;
+  ownerDisplayName: string;
+  title: string;
+  description: string;
+  gpuModel: string;
+  gpuCount: number;
+  availableGpuCount: number;
+  vramGbPerGpu: number;
+  allocationMode: GpuAllocationMode;
+  migProfile?: string;
+  cudaVersion?: string;
+  driverVersion?: string;
+  runtime: string;
+  connectionMode: GpuConnectionMode;
+  endpointUrl?: string;
+  locationLabel: string;
+  latitude?: number;
+  longitude?: number;
+  pricePerGpuHour: number;
+  currency: string;
+  minimumHours: number;
+  maxSessionHours: number;
+  checkoutUrl?: string;
+  providerInstructions?: string;
+  status: GpuCapacityStatus;
+  lastHeartbeatAt?: string | null;
+  runtimeStatus?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GpuCapacitySubmission {
+  title: string;
+  description?: string;
+  gpuModel: string;
+  gpuCount: number;
+  availableGpuCount?: number;
+  vramGbPerGpu: number;
+  allocationMode: GpuAllocationMode;
+  migProfile?: string;
+  cudaVersion?: string;
+  driverVersion?: string;
+  runtime?: string;
+  connectionMode: GpuConnectionMode;
+  endpointUrl?: string;
+  locationLabel?: string;
+  latitude?: number;
+  longitude?: number;
+  pricePerGpuHour: number;
+  currency?: string;
+  minimumHours?: number;
+  maxSessionHours?: number;
+  checkoutUrl?: string;
+  providerInstructions?: string;
+  publish?: boolean;
+}
+
 const apiBaseUrl = String(
   import.meta.env.VITE_API_URL ??
     import.meta.env.VITE_CLOUD_API_URL ??
@@ -393,6 +462,14 @@ const apiBaseUrl = String(
 )
   .trim()
   .replace(/\/$/, "");
+
+const apiFallbackBaseUrl = String(
+  import.meta.env.VITE_API_FALLBACK_URL ?? "https://api.walton.bot",
+)
+  .trim()
+  .replace(/\/$/, "");
+
+const apiBaseUrls = [...new Set([apiBaseUrl, apiFallbackBaseUrl].filter(Boolean))];
 
 const wundershipApiBaseUrl = String(
   import.meta.env.VITE_WUNDERSHIP_API_URL ??
@@ -404,12 +481,22 @@ const wundershipApiBaseUrl = String(
 async function readJsonResponse<T>(response: Response) {
   const payload = (await response.json().catch(() => ({}))) as T & {
     error?: string | { message?: string };
+    message?: string | { message?: string };
   };
   if (!response.ok) {
     const errorMessage =
       typeof payload.error === "string"
         ? payload.error
-        : payload.error?.message;
+        : payload.error?.message ??
+          (typeof payload.message === "string"
+            ? payload.message
+            : payload.message?.message);
+    if (response.status === 401) {
+      const detailedMessage = errorMessage && !/^(forbidden|unauthorized)$/i.test(errorMessage)
+        ? `${errorMessage} Sign out and sign in again.`
+        : "Your OpenModel session was rejected by the API. Sign out and sign in again.";
+      throw new Error(detailedMessage);
+    }
     throw new Error(
       errorMessage ?? `OpenModel API returned HTTP ${response.status}.`,
     );
@@ -427,6 +514,35 @@ export function getApiBaseUrl() {
 
 export function getWundershipApiBaseUrl() {
   return wundershipApiBaseUrl;
+}
+
+
+async function cloudApiFetch(
+  path: string,
+  init: RequestInit = {},
+  authenticated = true,
+) {
+  const errors: string[] = [];
+  const aliasFailoverStatuses = new Set([401, 403, 404, 408, 421, 425, 429]);
+  for (const [index, baseUrl] of apiBaseUrls.entries()) {
+    try {
+      const response = authenticated
+        ? await authenticatedFetch(`${baseUrl}${path}`, init)
+        : await fetch(`${baseUrl}${path}`, init);
+      const lastCandidate = index === apiBaseUrls.length - 1;
+      const shouldTryAlias = response.status >= 500 || aliasFailoverStatuses.has(response.status);
+      if (response.ok || !shouldTryAlias || lastCandidate) {
+        return response;
+      }
+      errors.push(`${baseUrl}: HTTP ${response.status}`);
+    } catch (error) {
+      errors.push(`${baseUrl}: ${error instanceof Error ? error.message : String(error)}`);
+      if (index === apiBaseUrls.length - 1) {
+        throw new Error(`OpenModel cloud API could not be reached. ${errors.join(" | ")}`);
+      }
+    }
+  }
+  throw new Error(`OpenModel cloud API could not be reached. ${errors.join(" | ")}`);
 }
 
 function normalizeWundershipPricingCatalog(payload: unknown): WundershipPricingCatalogResponse {
@@ -525,16 +641,16 @@ export async function submitWundershipUsageEvents(
 }
 
 export async function getDashboardUser(signal?: AbortSignal) {
-  const response = await authenticatedFetch(`${apiBaseUrl}/v1/me`, { signal });
+  const response = await cloudApiFetch("/v1/me", { signal });
   return readJsonResponse<DashboardUser>(response);
 }
 
 export async function getGatewayRegistry(signal?: AbortSignal) {
-  const response = await fetch(`${apiBaseUrl}/v1/gateways`, {
+  const response = await cloudApiFetch("/v1/gateways", {
     headers: { accept: "application/json" },
     cache: "no-store",
     signal,
-  });
+  }, false);
   const payload = await readJsonResponse<{ data: GatewayRecord[] }>(response);
   return payload.data;
 }
@@ -677,4 +793,74 @@ export async function createLocalChatCompletion(
     },
   );
   return readJsonResponse<LocalChatCompletion>(response);
+}
+
+
+export async function getPublicGpuCapacity(signal?: AbortSignal) {
+  let response = await cloudApiFetch(
+    "/v1/capacity/gpu",
+    { headers: { accept: "application/json" }, cache: "no-store", signal },
+    false,
+  );
+  if (response.status === 401 || response.status === 403) {
+    response = await cloudApiFetch(
+      "/v1/capacity/gpu",
+      { headers: { accept: "application/json" }, cache: "no-store", signal },
+    );
+  }
+  const payload = await readJsonResponse<{ data: GpuCapacityListing[] }>(response);
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
+export async function getMyGpuCapacity(signal?: AbortSignal) {
+  const response = await cloudApiFetch(
+    "/v1/capacity/gpu/mine",
+    { headers: { accept: "application/json" }, cache: "no-store", signal },
+  );
+  const payload = await readJsonResponse<{ data: GpuCapacityListing[] }>(response);
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
+export async function createGpuCapacity(
+  submission: GpuCapacitySubmission,
+  signal?: AbortSignal,
+) {
+  const response = await cloudApiFetch("/v1/capacity/gpu", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify(submission),
+    cache: "no-store",
+    signal,
+  });
+  const payload = await readJsonResponse<{ data: GpuCapacityListing }>(response);
+  return payload.data;
+}
+
+export async function updateGpuCapacity(
+  listingId: string,
+  submission: Partial<GpuCapacitySubmission>,
+  signal?: AbortSignal,
+) {
+  const response = await cloudApiFetch(`/v1/capacity/gpu/${encodeURIComponent(listingId)}`, {
+    method: "PUT",
+    headers: { accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify(submission),
+    cache: "no-store",
+    signal,
+  });
+  const payload = await readJsonResponse<{ data: GpuCapacityListing }>(response);
+  return payload.data;
+}
+
+export async function setGpuCapacityStatus(
+  listingId: string,
+  action: "publish" | "pause",
+  signal?: AbortSignal,
+) {
+  const response = await cloudApiFetch(
+    `/v1/capacity/gpu/${encodeURIComponent(listingId)}/${action}`,
+    { method: "POST", headers: { accept: "application/json" }, signal },
+  );
+  const payload = await readJsonResponse<{ data: GpuCapacityListing }>(response);
+  return payload.data;
 }

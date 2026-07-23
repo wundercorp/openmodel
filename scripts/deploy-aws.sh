@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
 set -Eeuo pipefail
 IFS=$'\n\t'
 
@@ -147,15 +150,17 @@ set_default_configuration() {
   OPENMODEL_TERRAFORM_BOOTSTRAP_STATE="${OPENMODEL_TERRAFORM_BOOTSTRAP_STATE:-1}"
   OPENMODEL_WEB_HOSTNAME="${OPENMODEL_WEB_HOSTNAME:-openmodel.sh}"
   OPENMODEL_API_HOSTNAME="${OPENMODEL_API_HOSTNAME:-api.openmodel.sh}"
+  OPENMODEL_API_ALIAS_HOSTNAME="${OPENMODEL_API_ALIAS_HOSTNAME:-api.walton.bot}"
   OPENMODEL_AUTH_ISSUER="${OPENMODEL_AUTH_ISSUER:-}"
   OPENMODEL_AUTH_DOMAIN="${OPENMODEL_AUTH_DOMAIN:-}"
   OPENMODEL_WEB_AUTH_CLIENT_ID="${OPENMODEL_WEB_AUTH_CLIENT_ID:-}"
-  OPENMODEL_AUTH_AUDIENCE="${OPENMODEL_AUTH_AUDIENCE:-$OPENMODEL_WEB_AUTH_CLIENT_ID}"
+  OPENMODEL_CLI_AUTH_CLIENT_ID="${OPENMODEL_CLI_AUTH_CLIENT_ID:-${OPENMODEL_AUTH_CLIENT_ID:-}}"
+  OPENMODEL_AUTH_AUDIENCE="${OPENMODEL_AUTH_AUDIENCE:-$OPENMODEL_WEB_AUTH_CLIENT_ID${OPENMODEL_CLI_AUTH_CLIENT_ID:+,$OPENMODEL_CLI_AUTH_CLIENT_ID}}"
   OPENMODEL_WEB_AUTH_SCOPES="${OPENMODEL_WEB_AUTH_SCOPES:-openid profile email}"
   OPENMODEL_WEB_URL="${OPENMODEL_WEB_URL:-https://$OPENMODEL_WEB_HOSTNAME}"
   OPENMODEL_CLOUD_API_URL="${OPENMODEL_CLOUD_API_URL:-https://$OPENMODEL_API_HOSTNAME}"
   OPENMODEL_WUNDERSHIP_API_URL="${OPENMODEL_WUNDERSHIP_API_URL:-https://api.wundership.com/openmodel/v1}"
-  OPENMODEL_ALLOWED_ORIGINS="${OPENMODEL_ALLOWED_ORIGINS:-$OPENMODEL_WEB_URL}"
+  OPENMODEL_ALLOWED_ORIGINS="${OPENMODEL_ALLOWED_ORIGINS:-$OPENMODEL_WEB_URL,https://walton.bot,https://www.walton.bot}"
   OPENMODEL_CLOUDFRONT_PRICE_CLASS="${OPENMODEL_CLOUDFRONT_PRICE_CLASS:-PriceClass_100}"
   OPENMODEL_LOG_RETENTION_DAYS="${OPENMODEL_LOG_RETENTION_DAYS:-30}"
   OPENMODEL_FORCE_DESTROY_WEB_BUCKET="${OPENMODEL_FORCE_DESTROY_WEB_BUCKET:-0}"
@@ -175,6 +180,22 @@ validate_backend_string() {
   fi
 }
 
+auth_audience_contains() {
+  local expected_client_id="$1"
+  local candidate_client_id
+  local original_ifs="$IFS"
+  IFS=','
+  for candidate_client_id in $OPENMODEL_AUTH_AUDIENCE; do
+    candidate_client_id="${candidate_client_id//[[:space:]]/}"
+    if [[ "$candidate_client_id" == "$expected_client_id" ]]; then
+      IFS="$original_ifs"
+      return 0
+    fi
+  done
+  IFS="$original_ifs"
+  return 1
+}
+
 validate_configuration() {
   if [[ "$OPENMODEL_AWS_REGION" != "us-east-1" ]]; then
     fail_deployment "OPENMODEL_AWS_REGION must currently be us-east-1."
@@ -189,10 +210,13 @@ validate_configuration() {
     fail_deployment "OPENMODEL_WEB_AUTH_CLIENT_ID must be the generated Cognito app client ID, not the app client name."
   fi
   if [[ -z "$OPENMODEL_AUTH_AUDIENCE" ]]; then
-    fail_deployment "OPENMODEL_AUTH_AUDIENCE must contain the Cognito app client ID accepted by the API."
+    fail_deployment "OPENMODEL_AUTH_AUDIENCE must contain the Cognito app client IDs accepted by the API."
   fi
-  if [[ "$OPENMODEL_AUTH_AUDIENCE" != "$OPENMODEL_WEB_AUTH_CLIENT_ID" ]]; then
-    fail_deployment "OPENMODEL_AUTH_AUDIENCE must match OPENMODEL_WEB_AUTH_CLIENT_ID for Cognito access-token validation."
+  if ! auth_audience_contains "$OPENMODEL_WEB_AUTH_CLIENT_ID"; then
+    fail_deployment "OPENMODEL_AUTH_AUDIENCE must include OPENMODEL_WEB_AUTH_CLIENT_ID."
+  fi
+  if [[ -n "$OPENMODEL_CLI_AUTH_CLIENT_ID" ]] && ! auth_audience_contains "$OPENMODEL_CLI_AUTH_CLIENT_ID"; then
+    fail_deployment "OPENMODEL_AUTH_AUDIENCE must include OPENMODEL_CLI_AUTH_CLIENT_ID so om login tokens can manage GPU capacity."
   fi
   if [[ -n "$OPENMODEL_AWS_ACCOUNT_ID" && ! "$OPENMODEL_AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
     fail_deployment "OPENMODEL_AWS_ACCOUNT_ID must be a 12-digit AWS account ID when provided."
@@ -447,6 +471,7 @@ export_terraform_variables() {
   export TF_VAR_project_name="$OPENMODEL_PROJECT_NAME"
   export TF_VAR_web_hostname="$OPENMODEL_WEB_HOSTNAME"
   export TF_VAR_api_hostname="$OPENMODEL_API_HOSTNAME"
+  export TF_VAR_api_alias_hostname="$OPENMODEL_API_ALIAS_HOSTNAME"
   export TF_VAR_auth_issuer="$OPENMODEL_AUTH_ISSUER"
   export TF_VAR_auth_audience="$OPENMODEL_AUTH_AUDIENCE"
   export TF_VAR_allowed_origins="$OPENMODEL_ALLOWED_ORIGINS"

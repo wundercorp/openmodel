@@ -15,7 +15,8 @@ const healthResponse = await handler({
 assert.equal(healthResponse.statusCode, 200);
 assert.deepEqual(JSON.parse(healthResponse.body), {
   status: 'ok',
-  service: 'openmodel-aws-api'
+  service: 'openmodel-aws-api',
+  apiAliases: ['https://api.openmodel.sh', 'https://api.walton.bot']
 });
 
 const gatewayResponse = await handler({

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
 set -Eeuo pipefail
 IFS=$'\n\t'
 
@@ -148,7 +151,8 @@ set_default_configuration() {
   OPENMODEL_AUTH_ISSUER="${OPENMODEL_AUTH_ISSUER:-}"
   OPENMODEL_AUTH_DOMAIN="${OPENMODEL_AUTH_DOMAIN:-}"
   OPENMODEL_WEB_AUTH_CLIENT_ID="${OPENMODEL_WEB_AUTH_CLIENT_ID:-}"
-  OPENMODEL_AUTH_AUDIENCE="${OPENMODEL_AUTH_AUDIENCE:-$OPENMODEL_WEB_AUTH_CLIENT_ID}"
+  OPENMODEL_CLI_AUTH_CLIENT_ID="${OPENMODEL_CLI_AUTH_CLIENT_ID:-${OPENMODEL_AUTH_CLIENT_ID:-}}"
+  OPENMODEL_AUTH_AUDIENCE="${OPENMODEL_AUTH_AUDIENCE:-$OPENMODEL_WEB_AUTH_CLIENT_ID${OPENMODEL_CLI_AUTH_CLIENT_ID:+,$OPENMODEL_CLI_AUTH_CLIENT_ID}}"
   OPENMODEL_WEB_AUTH_SCOPES="${OPENMODEL_WEB_AUTH_SCOPES:-openid profile email}"
   OPENMODEL_WEB_URL="${OPENMODEL_WEB_URL:-https://$OPENMODEL_WEB_HOSTNAME}"
   OPENMODEL_CLOUD_API_URL="${OPENMODEL_CLOUD_API_URL:-https://$OPENMODEL_API_HOSTNAME}"
@@ -162,6 +166,22 @@ set_default_configuration() {
   fi
 }
 
+auth_audience_contains() {
+  local expected_client_id="$1"
+  local candidate_client_id
+  local original_ifs="$IFS"
+  IFS=','
+  for candidate_client_id in $OPENMODEL_AUTH_AUDIENCE; do
+    candidate_client_id="${candidate_client_id//[[:space:]]/}"
+    if [[ "$candidate_client_id" == "$expected_client_id" ]]; then
+      IFS="$original_ifs"
+      return 0
+    fi
+  done
+  IFS="$original_ifs"
+  return 1
+}
+
 validate_boolean_configuration() {
   if [[ -z "$OPENMODEL_AUTH_ISSUER" ]]; then
     fail_deployment "OPENMODEL_AUTH_ISSUER must be the Cognito user-pool issuer URL."
@@ -173,10 +193,13 @@ validate_boolean_configuration() {
     fail_deployment "OPENMODEL_WEB_AUTH_CLIENT_ID must be the generated Cognito app client ID, not the app client name."
   fi
   if [[ -z "$OPENMODEL_AUTH_AUDIENCE" ]]; then
-    fail_deployment "OPENMODEL_AUTH_AUDIENCE must contain the Cognito app client ID accepted by the API."
+    fail_deployment "OPENMODEL_AUTH_AUDIENCE must contain the Cognito app client IDs accepted by the API."
   fi
-  if [[ "$OPENMODEL_AUTH_AUDIENCE" != "$OPENMODEL_WEB_AUTH_CLIENT_ID" ]]; then
-    fail_deployment "OPENMODEL_AUTH_AUDIENCE must match OPENMODEL_WEB_AUTH_CLIENT_ID for Cognito access-token validation."
+  if ! auth_audience_contains "$OPENMODEL_WEB_AUTH_CLIENT_ID"; then
+    fail_deployment "OPENMODEL_AUTH_AUDIENCE must include OPENMODEL_WEB_AUTH_CLIENT_ID."
+  fi
+  if [[ -n "$OPENMODEL_CLI_AUTH_CLIENT_ID" ]] && ! auth_audience_contains "$OPENMODEL_CLI_AUTH_CLIENT_ID"; then
+    fail_deployment "OPENMODEL_AUTH_AUDIENCE must include OPENMODEL_CLI_AUTH_CLIENT_ID so om login tokens can manage GPU capacity."
   fi
 
   if [[ "$OPENMODEL_MANAGE_CUSTOM_DOMAINS" != "0" && "$OPENMODEL_MANAGE_CUSTOM_DOMAINS" != "1" ]]; then

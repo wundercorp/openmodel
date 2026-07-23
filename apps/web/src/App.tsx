@@ -5,6 +5,7 @@ import { UsagePricingDashboard } from "./components/UsagePricingDashboard";
 import { ExternalUsageDashboard } from "./components/ExternalUsageDashboard";
 import { PublicLocalMetricsPage } from "./components/PublicLocalMetricsPage";
 import { BaseUIShowcase } from "./components/BaseUIShowcase";
+import { GpuCapacityDashboard } from "./components/GpuCapacityDashboard";
 import {
   beginLogin,
   completeLogin,
@@ -44,6 +45,7 @@ type LocalApiState = "idle" | "loading" | "connected" | "offline";
 type ModelTestState = "idle" | "running" | "complete" | "error";
 type DashboardRoute =
   | "overview"
+  | "capacity"
   | "models"
   | "resources"
   | "metrics"
@@ -84,6 +86,7 @@ const dashboardRouteItems: Array<{
   label: string;
 }> = [
   { route: "overview", label: "Overview" },
+  { route: "capacity", label: "GPU Capacity" },
   { route: "models", label: "Models" },
   { route: "resources", label: "Resources" },
   { route: "metrics", label: "Metrics" },
@@ -93,6 +96,7 @@ const dashboardRouteItems: Array<{
 
 const dashboardRouteIconNames: Record<DashboardRoute, IconName> = {
   overview: "dashboard",
+  capacity: "server",
   models: "box",
   resources: "file",
   metrics: "chart",
@@ -2043,6 +2047,17 @@ function DashboardPage({
                 </Card>
 
                 <Card className="dashboard-overview-action-card">
+                  <span className="dashboard-panel-kicker">GPU PROVIDER</span>
+                  <h3>List GPU capacity</h3>
+                  <p>
+                    Detect local NVIDIA hardware with the OpenModel CLI or publish a provider listing directly from the dashboard.
+                  </p>
+                  <Button onClick={() => navigateDashboard("capacity")}>
+                    Open GPU capacity
+                  </Button>
+                </Card>
+
+                <Card className="dashboard-overview-action-card">
                   <span className="dashboard-panel-kicker">
                     LOCAL AI WORKFLOW
                   </span>
@@ -2108,6 +2123,8 @@ function DashboardPage({
               </div>
             </section>
           ) : null}
+
+          {activeRoute === "capacity" ? <GpuCapacityDashboard /> : null}
 
           {activeRoute === "models" ? (
             <section className="dashboard-section dashboard-page-view">
