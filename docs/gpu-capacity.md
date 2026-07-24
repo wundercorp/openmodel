@@ -1,43 +1,75 @@
 # GPU capacity
 
-OpenModel is the provider-facing home for Walton GPU capacity. The Walton mobile app no longer creates or manages capacity listings.
+OpenModel provides a provider marketplace and hyperscaler control plane for selling GPU time. The Walton mobile app does not create or manage provider capacity.
 
-## Provider workflow
+## Fast provider setup
 
-1. Install the CLI and run `om login`.
-2. Start a reachable OpenModel-compatible inference or workload endpoint.
-3. Run `om capacity expose --price-hour <usd> --endpoint <https-url>`.
-4. Keep availability current with `om capacity heartbeat`.
-5. Use the GPU Capacity dashboard to inspect, publish, or pause listings.
+```bash
+om login
+om provider enroll --endpoint https://worker.example.com
+om provider agent --interval-seconds 30
+om capacity expose --node-id <node-id> --price-hour 0.75
+```
 
-The listing is coordination metadata. OpenModel does not open firewall ports, change router configuration, or proxy provider inference traffic. The provider controls the endpoint and access policy.
+The provider agent sends outbound heartbeats and pulls assignments with a node-scoped token. It does not expose host credentials or automatically execute buyer-provided commands.
 
-## Buyer workflow
+## Provider operations
 
-Published listings are visible in the OpenModel dashboard and from `GET /v1/capacity/gpu`. A listing may include a provider checkout URL or a provider-controlled endpoint. Purchase/session orchestration can be layered onto this contract without moving provider network credentials into Walton mobile.
+```bash
+om provider nodes
+om provider assignments
+om provider accept <reservation-id>
+om provider start <reservation-id>
+om provider usage <reservation-id> --sequence 1 --billable-seconds 300
+om provider complete <reservation-id> --sequence 2 --billable-seconds 3600
+om provider earnings
+om provider payout-profile --method STRIPE_CONNECT --destination-reference acct_123
+om provider payout --currency USD
+```
 
-## API
+Use `om provider drain` before maintenance. Disable is rejected while active assignments remain.
 
-Public:
+## API groups
+
+Public inventory:
 
 - `GET /v1/capacity/gpu`
 
-Authenticated provider operations:
+Authenticated provider users:
 
-- `GET /v1/capacity/gpu/mine`
-- `POST /v1/capacity/gpu`
-- `GET /v1/capacity/gpu/{id}`
-- `PUT /v1/capacity/gpu/{id}`
-- `POST /v1/capacity/gpu/{id}/publish`
-- `POST /v1/capacity/gpu/{id}/pause`
-- `POST /v1/capacity/gpu/{id}/heartbeat`
+- `GET|POST /v1/provider/nodes`
+- `GET /v1/provider/nodes/{nodeId}`
+- `POST /v1/provider/nodes/{nodeId}/rotate-token|enable|drain|disable`
+- `GET /v1/provider/reservations`
+- `GET /v1/provider/earnings`
+- `GET|PUT /v1/provider/payout-profile`
+- `GET|POST /v1/provider/payouts`
+- existing listing routes under `/v1/capacity/gpu`
 
-## Storage
+Node-scoped worker control:
 
-AWS Lambda uses `GPU_CAPACITY_TABLE` (or the compatibility fallback `CAPACITY_TABLE`). The table needs a string primary key named `id`, and the Lambda role needs Scan and PutItem permissions.
+- `POST /v1/provider/nodes/{nodeId}/heartbeat`
+- `GET /v1/provider/nodes/{nodeId}/assignments`
+- `POST /v1/provider/nodes/{nodeId}/assignments/{reservationId}/accept|start|usage|complete|fail`
 
-Cloudflare Worker uses the `GPU_CAPACITY_REGISTRY` KV binding.
+Hyperscaler master:
+
+- `GET|POST /v1/hyperscaler/reservations`
+- `GET /v1/hyperscaler/reservations/{reservationId}`
+- `POST /v1/hyperscaler/reservations/{reservationId}/cancel|expire|dispute`
+- `POST /v1/hyperscaler/reservations/sweep`
+- `GET /v1/hyperscaler/payouts`
+- `POST /v1/hyperscaler/payouts/{payoutId}/processing|paid|failed`
+- `POST /v1/hyperscaler/payout-profiles/{providerId}/verify|reject`
+
+## Storage and consistency
+
+AWS uses `GPU_CAPACITY_TABLE` and DynamoDB transactions for reservation, release, earning, and payout mutations. The table needs a string partition key named `id`.
+
+Cloudflare uses `GPU_CAPACITY_REGISTRY` KV. Transactional allocation and payout writes fail closed by default because KV cannot guarantee atomic capacity accounting. See `docs/gpu-provider-marketplace.md` before enabling the development-only override.
 
 ## API aliases
 
-The source treats `https://api.openmodel.sh` as canonical and `https://api.walton.bot` as a fallback. DNS/custom-domain configuration must route both names to the same API deployment. This repository cannot create a Walton DNS record unless the corresponding hosted zone/account is included in the deployment infrastructure.
+`https://api.openmodel.sh` is canonical and `https://api.walton.bot` is the fallback. Both must route to the same deployment and identity contract.
+
+For the complete state machines, security boundary, payment semantics, deployment values, and edge cases, see [GPU provider marketplace and hyperscaler control plane](gpu-provider-marketplace.md).

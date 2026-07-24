@@ -66,6 +66,12 @@ OPENMODEL_ROUTE53_ZONE_ID="<YOUR_ROUTE53_HOSTED_ZONE_ID>"
 OPENMODEL_ROUTE53_ZONE_NAME="openmodel.sh"
 OPENMODEL_ROUTE53_EXPECTED_NAME_SERVERS="<ROUTE53_NAME_SERVER_1>,<ROUTE53_NAME_SERVER_2>,<ROUTE53_NAME_SERVER_3>,<ROUTE53_NAME_SERVER_4>"
 OPENMODEL_WUNDERSHIP_API_URL="https://api.wundership.com/api/openmodel/v1"
+OPENMODEL_HYPERSCALER_SUBJECTS="trusted-cognito-subject-1,trusted-cognito-subject-2"
+OPENMODEL_CAPACITY_HEARTBEAT_MAX_AGE_SECONDS="120"
+OPENMODEL_CAPACITY_ASSIGNMENT_TIMEOUT_SECONDS="300"
+OPENMODEL_CAPACITY_EARNINGS_HOLD_SECONDS="604800"
+OPENMODEL_CAPACITY_MINIMUM_PAYOUT_AMOUNT="25"
+OPENMODEL_CAPACITY_PLATFORM_FEE_BPS="1000"
 ```
 
 Keep account IDs, hosted-zone IDs, state-bucket names, delegation sets, and tokens only in the ignored `.env.deploy` or protected CI settings. The deploy script verifies configured targets before changing resources. The account ID can be discovered from the active AWS identity, and the hosted-zone ID can be discovered from the zone name when omitted.
@@ -254,7 +260,7 @@ The deploying identity needs permission for:
 - Route 53 records in hosted zone `<YOUR_ROUTE53_HOSTED_ZONE_ID>`
 - Lambda functions and permissions
 - API Gateway v2 APIs and custom domains
-- DynamoDB tables
+- DynamoDB tables, including transactional reads/writes for GPU allocation and settlement
 - IAM roles and inline policies for the Lambda function
 - CloudWatch log groups
 
@@ -340,3 +346,19 @@ AWS_DEPLOY_ROLE_ARN
 The IAM role trust policy should restrict the GitHub OIDC subject to the intended repository and production environment. Add `NPM_TOKEN` only when the workflow will publish npm packages.
 
 Run the workflow from GitHub Actions and choose whether npm publication is enabled. The workflow pins the expected AWS account and refuses credentials from another account.
+
+## GPU provider marketplace operations
+
+The AWS API is the authoritative hyperscaler master. It reserves both the sellable listing and the underlying physical worker in one DynamoDB transaction, issues node-scoped assignments, meters cumulative usage, creates held earnings, and settles verified payout destinations.
+
+The Lambda role must include `dynamodb:GetItem`, `PutItem`, `UpdateItem`, `Scan`, and `TransactWriteItems` on the GPU capacity table. Enable point-in-time recovery and monitor transaction conflicts, stale workers, assignment expiry, disputed earnings, payout failures, and reconciliation differences.
+
+Provider workers should run:
+
+```bash
+om login
+om provider enroll --name worker-1 --endpoint https://worker.example.com
+om provider agent --interval-seconds 20
+```
+
+Keep the one-time node token in a host secret store. Drain a node before maintenance, disable it only after active assignments finish, and rotate the node token after suspected exposure. See `docs/gpu-provider-marketplace.md` for the complete state machines and operational edge cases.

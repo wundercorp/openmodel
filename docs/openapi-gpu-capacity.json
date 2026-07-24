@@ -1,166 +1,2178 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "OpenModel GPU Capacity API",
-    "version": "1.0.0",
-    "description": "Provider GPU inventory shared by api.openmodel.sh and api.walton.bot."
+    "title": "OpenModel GPU Provider and Hyperscaler API",
+    "version": "2.0.0",
+    "description": "Master/worker GPU capacity allocation, metering, provider earnings, and payout-state API shared by api.openmodel.sh and api.walton.bot."
   },
   "servers": [
-    { "url": "https://api.openmodel.sh", "description": "Canonical API" },
-    { "url": "https://api.walton.bot", "description": "Walton API alias" }
+    {
+      "url": "https://api.openmodel.sh"
+    },
+    {
+      "url": "https://api.walton.bot"
+    }
   ],
   "paths": {
     "/v1/capacity/gpu": {
       "get": {
-        "summary": "List published GPU capacity",
+        "summary": "List public sellable GPU capacity",
         "responses": {
           "200": {
-            "description": "Published listings",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityListResponse" } } }
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PublicGpuListing"
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       },
       "post": {
-        "summary": "Create a GPU capacity listing",
-        "security": [{ "bearerAuth": [] }],
+        "summary": "Create a provider GPU listing",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacitySubmission" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
         },
         "responses": {
           "201": {
-            "description": "Created listing",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityResponse" } } }
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuListing"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       }
     },
     "/v1/capacity/gpu/mine": {
       "get": {
-        "summary": "List the authenticated provider's GPU listings",
-        "security": [{ "bearerAuth": [] }],
+        "summary": "List the authenticated provider's listings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Provider listings",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityListResponse" } } }
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GpuListing"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       }
     },
     "/v1/capacity/gpu/{listingId}": {
-      "parameters": [{ "in": "path", "name": "listingId", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ListingId"
+        }
+      ],
       "get": {
-        "summary": "Read an owned GPU listing",
-        "security": [{ "bearerAuth": [] }],
-        "responses": { "200": { "description": "Listing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityResponse" } } } } }
+        "summary": "Read an owned listing",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuListing"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
       },
       "put": {
-        "summary": "Update an owned GPU listing",
-        "security": [{ "bearerAuth": [] }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacitySubmission" } } } },
-        "responses": { "200": { "description": "Updated listing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityResponse" } } } } }
-      }
-    },
-    "/v1/capacity/gpu/{listingId}/publish": {
-      "post": {
-        "summary": "Publish an owned listing",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "in": "path", "name": "listingId", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Published listing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityResponse" } } } } }
-      }
-    },
-    "/v1/capacity/gpu/{listingId}/pause": {
-      "post": {
-        "summary": "Pause an owned listing",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "in": "path", "name": "listingId", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Paused listing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityResponse" } } } } }
-      }
-    },
-    "/v1/capacity/gpu/{listingId}/heartbeat": {
-      "post": {
-        "summary": "Update provider availability",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "in": "path", "name": "listingId", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "summary": "Update an owned listing",
+        "description": "Contract-sensitive fields cannot change while reservations are active.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "availableGpuCount": { "type": "integer", "minimum": 0 },
-                  "runtimeStatus": { "type": "string" }
-                }
+                "type": "object"
               }
             }
           }
         },
-        "responses": { "200": { "description": "Updated listing", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GpuCapacityResponse" } } } } }
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuListing"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/capacity/gpu/{listingId}/publish": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ListingId"
+        }
+      ],
+      "post": {
+        "summary": "Publish a listing",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuListing"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/capacity/gpu/{listingId}/pause": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ListingId"
+        }
+      ],
+      "post": {
+        "summary": "Pause a listing",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuListing"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/capacity/gpu/{listingId}/heartbeat": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ListingId"
+        }
+      ],
+      "post": {
+        "summary": "Heartbeat a legacy provider-handoff listing",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuListing"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/nodes": {
+      "get": {
+        "summary": "List provider worker nodes",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ProviderNode"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      },
+      "post": {
+        "summary": "Enroll a provider worker",
+        "description": "Returns nodeToken once. The server persists only its hash.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderNode"
+                    },
+                    "nodeToken": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/nodes/{nodeId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/NodeId"
+        }
+      ],
+      "get": {
+        "summary": "Read an owned provider worker",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderNode"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/nodes/{nodeId}/rotate-token": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/NodeId"
+        }
+      ],
+      "post": {
+        "summary": "Rotate a worker node token",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rotated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderNode"
+                    },
+                    "nodeToken": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/nodes/{nodeId}/enable": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/NodeId"
+        }
+      ],
+      "post": {
+        "summary": "Enable a worker",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderNode"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/nodes/{nodeId}/drain": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/NodeId"
+        }
+      ],
+      "post": {
+        "summary": "Drain a worker before maintenance",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderNode"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/nodes/{nodeId}/disable": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/NodeId"
+        }
+      ],
+      "post": {
+        "summary": "Disable a worker with no active assignments",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderNode"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/nodes/{nodeId}/heartbeat": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/NodeId"
+        }
+      ],
+      "post": {
+        "summary": "Report worker health and observed availability",
+        "security": [
+          {
+            "nodeToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderNode"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/nodes/{nodeId}/assignments": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/NodeId"
+        }
+      ],
+      "get": {
+        "summary": "Pull active worker assignments",
+        "security": [
+          {
+            "nodeToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/NodeAssignment"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/nodes/{nodeId}/assignments/{reservationId}/{action}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/NodeId"
+        },
+        {
+          "$ref": "#/components/parameters/ReservationId"
+        },
+        {
+          "name": "action",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "start",
+              "usage",
+              "complete",
+              "fail"
+            ]
+          }
+        }
+      ],
+      "post": {
+        "summary": "Advance or meter a worker assignment",
+        "security": [
+          {
+            "nodeToken": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuReservation"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/reservations": {
+      "get": {
+        "summary": "List reservations sold by the provider",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GpuReservation"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/earnings": {
+      "get": {
+        "summary": "List provider earnings and balances",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Earnings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GpuEarning"
+                      }
+                    },
+                    "totals": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "$ref": "#/components/schemas/EarningTotals"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/payout-profile": {
+      "get": {
+        "summary": "Read the provider payout profile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PayoutProfile"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      },
+      "put": {
+        "summary": "Create or update a tokenized payout destination",
+        "description": "Changing method or destination resets verification.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PayoutProfile"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PayoutProfile"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/provider/payouts": {
+      "get": {
+        "summary": "List provider payouts",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GpuPayout"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      },
+      "post": {
+        "summary": "Request payout of available whole earning records",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Requested",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuPayout"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/hyperscaler/reservations": {
+      "get": {
+        "summary": "List all reservations",
+        "security": [
+          {
+            "bearerAuth": [
+              "capacity:master"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GpuReservation"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      },
+      "post": {
+        "summary": "Allocate published worker capacity",
+        "description": "clientRequestId is idempotent per hyperscaler identity. AWS updates listing, node, and reservation transactionally.",
+        "security": [
+          {
+            "bearerAuth": [
+              "capacity:master"
+            ]
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Existing idempotent reservation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuReservation"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Assigned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuReservation"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/hyperscaler/reservations/sweep": {
+      "post": {
+        "summary": "Expire stale unaccepted assignments and release capacity",
+        "security": [
+          {
+            "bearerAuth": [
+              "capacity:master"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sweep result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/hyperscaler/reservations/{reservationId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ReservationId"
+        }
+      ],
+      "get": {
+        "summary": "Read a reservation",
+        "security": [
+          {
+            "bearerAuth": [
+              "capacity:master"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuReservation"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/hyperscaler/reservations/{reservationId}/{action}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ReservationId"
+        },
+        {
+          "name": "action",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "cancel",
+              "expire",
+              "dispute"
+            ]
+          }
+        }
+      ],
+      "post": {
+        "summary": "Cancel, expire, or dispute a reservation",
+        "security": [
+          {
+            "bearerAuth": [
+              "capacity:master"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuReservation"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/hyperscaler/payouts": {
+      "get": {
+        "summary": "List payouts for settlement operations",
+        "security": [
+          {
+            "bearerAuth": [
+              "capacity:settle"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GpuPayout"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/hyperscaler/payouts/{payoutId}/{action}": {
+      "parameters": [
+        {
+          "name": "payoutId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "action",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "processing",
+              "paid",
+              "failed"
+            ]
+          }
+        }
+      ],
+      "post": {
+        "summary": "Advance payout settlement state",
+        "security": [
+          {
+            "bearerAuth": [
+              "capacity:settle"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GpuPayout"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/hyperscaler/payout-profiles/{providerId}/{action}": {
+      "parameters": [
+        {
+          "name": "providerId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "action",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "verify",
+              "reject"
+            ]
+          }
+        }
+      ],
+      "post": {
+        "summary": "Verify or reject a provider payout destination",
+        "security": [
+          {
+            "bearerAuth": [
+              "capacity:settle"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PayoutProfile"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
       }
     }
   },
   "components": {
     "securitySchemes": {
-      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "OpenModel OIDC access token."
+      },
+      "nodeToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "Authorization: Node <node-id>.<secret>"
+      }
     },
-    "schemas": {
-      "GpuCapacitySubmission": {
-        "type": "object",
-        "required": ["title", "gpuModel", "gpuCount", "vramGbPerGpu", "pricePerGpuHour"],
-        "properties": {
-          "title": { "type": "string" },
-          "description": { "type": "string" },
-          "gpuModel": { "type": "string" },
-          "gpuCount": { "type": "integer", "minimum": 1 },
-          "availableGpuCount": { "type": "integer", "minimum": 0 },
-          "vramGbPerGpu": { "type": "number", "exclusiveMinimum": 0 },
-          "allocationMode": { "type": "string", "enum": ["EXCLUSIVE", "MIG", "TIME_SLICED"] },
-          "migProfile": { "type": "string" },
-          "cudaVersion": { "type": "string" },
-          "driverVersion": { "type": "string" },
-          "runtime": { "type": "string" },
-          "connectionMode": { "type": "string", "enum": ["OPENMODEL_API", "HTTPS_API", "SSH", "WIREGUARD", "TAILSCALE", "MANUAL"] },
-          "endpointUrl": { "type": "string", "format": "uri" },
-          "locationLabel": { "type": "string" },
-          "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
-          "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
-          "pricePerGpuHour": { "type": "number", "minimum": 0 },
-          "currency": { "type": "string", "default": "USD" },
-          "minimumHours": { "type": "number", "exclusiveMinimum": 0 },
-          "maxSessionHours": { "type": "number", "exclusiveMinimum": 0 },
-          "checkoutUrl": { "type": "string", "format": "uri" },
-          "providerInstructions": { "type": "string" },
-          "publish": { "type": "boolean", "default": false }
+    "parameters": {
+      "ListingId": {
+        "name": "listingId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
         }
       },
-      "GpuCapacityListing": {
+      "NodeId": {
+        "name": "nodeId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "ReservationId": {
+        "name": "reservationId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Validation failed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Authentication failed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Permission denied",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "State, capacity, or concurrent revision conflict",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "GpuListing": {
+        "type": "object",
+        "required": [
+          "id",
+          "ownerId",
+          "gpuModel",
+          "gpuCount",
+          "availableGpuCount",
+          "pricePerGpuHour",
+          "currency",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "workerNodeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "managedBy": {
+            "type": "string",
+            "enum": [
+              "HYPERSCALER_MASTER",
+              "PROVIDER_HANDOFF"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "gpuModel": {
+            "type": "string"
+          },
+          "gpuCount": {
+            "type": "integer"
+          },
+          "availableGpuCount": {
+            "type": "integer"
+          },
+          "vramGbPerGpu": {
+            "type": "number"
+          },
+          "allocationMode": {
+            "type": "string",
+            "enum": [
+              "EXCLUSIVE",
+              "MIG",
+              "TIME_SLICED"
+            ]
+          },
+          "connectionMode": {
+            "type": "string"
+          },
+          "endpointUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "pricePerGpuHour": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "minimumHours": {
+            "type": "number"
+          },
+          "maxSessionHours": {
+            "type": "number"
+          },
+          "platformFeeBps": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "PUBLISHED",
+              "PAUSED"
+            ]
+          },
+          "revision": {
+            "type": "integer"
+          }
+        }
+      },
+      "PublicGpuListing": {
         "allOf": [
-          { "$ref": "#/components/schemas/GpuCapacitySubmission" },
+          {
+            "$ref": "#/components/schemas/GpuListing"
+          },
           {
             "type": "object",
-            "required": ["id", "ownerId", "ownerDisplayName", "status", "createdAt", "updatedAt"],
+            "description": "Endpoint, provider instructions, exact coordinates, and checkout URL are omitted.",
             "properties": {
-              "id": { "type": "string", "format": "uuid" },
-              "ownerId": { "type": "string" },
-              "ownerDisplayName": { "type": "string" },
-              "status": { "type": "string", "enum": ["DRAFT", "PUBLISHED", "PAUSED"] },
-              "lastHeartbeatAt": { "type": ["string", "null"], "format": "date-time" },
-              "runtimeStatus": { "type": "string" },
-              "createdAt": { "type": "string", "format": "date-time" },
-              "updatedAt": { "type": "string", "format": "date-time" }
+              "endpointAvailableAfterReservation": {
+                "type": "boolean"
+              },
+              "nodeHealthStatus": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
             }
           }
         ]
       },
-      "GpuCapacityResponse": {
+      "ProviderNode": {
         "type": "object",
-        "required": ["data"],
-        "properties": { "data": { "$ref": "#/components/schemas/GpuCapacityListing" } }
+        "required": [
+          "id",
+          "ownerId",
+          "status",
+          "healthStatus",
+          "gpuModel",
+          "gpuCount",
+          "availableGpuCount"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "DRAINING",
+              "DISABLED"
+            ]
+          },
+          "healthStatus": {
+            "type": "string",
+            "enum": [
+              "REGISTERING",
+              "READY",
+              "DEGRADED",
+              "OFFLINE"
+            ]
+          },
+          "gpuModel": {
+            "type": "string"
+          },
+          "gpuCount": {
+            "type": "integer"
+          },
+          "reportedAvailableGpuCount": {
+            "type": "integer"
+          },
+          "reservedGpuCount": {
+            "type": "integer"
+          },
+          "availableGpuCount": {
+            "type": "integer"
+          },
+          "vramGbPerGpu": {
+            "type": "number"
+          },
+          "allocationModes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "endpointUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "lastHeartbeatAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "tokenLastFour": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        }
       },
-      "GpuCapacityListResponse": {
+      "NodeAssignment": {
         "type": "object",
-        "required": ["data"],
-        "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/GpuCapacityListing" } } }
+        "description": "Worker-safe reservation projection. Funding references are omitted.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "listingId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "gpuCount": {
+            "type": "integer"
+          },
+          "requestedHours": {
+            "type": "number"
+          },
+          "workloadReference": {
+            "type": "string"
+          },
+          "workloadKind": {
+            "type": "string"
+          },
+          "workloadMetadata": {
+            "type": "object"
+          },
+          "assignmentExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "providerAuthorizedAmount": {
+            "type": "number"
+          }
+        }
+      },
+      "GpuReservation": {
+        "type": "object",
+        "required": [
+          "id",
+          "listingId",
+          "nodeId",
+          "providerId",
+          "buyerId",
+          "status",
+          "gpuCount",
+          "requestedHours",
+          "currency"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "clientRequestId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "listingId": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": "string"
+          },
+          "providerId": {
+            "type": "string"
+          },
+          "buyerId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ASSIGNED",
+              "ACCEPTED",
+              "RUNNING",
+              "COMPLETED",
+              "FAILED",
+              "CANCELLED",
+              "EXPIRED",
+              "DISPUTED"
+            ]
+          },
+          "gpuCount": {
+            "type": "integer"
+          },
+          "requestedHours": {
+            "type": "number"
+          },
+          "maxBillableSeconds": {
+            "type": "integer"
+          },
+          "pricePerGpuHour": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "platformFeeBps": {
+            "type": "integer"
+          },
+          "grossAuthorizedAmount": {
+            "type": "number"
+          },
+          "providerAuthorizedAmount": {
+            "type": "number"
+          },
+          "fundingReference": {
+            "type": "string"
+          },
+          "workloadReference": {
+            "type": "string"
+          },
+          "assignmentExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "usageSequence": {
+            "type": "integer"
+          },
+          "cumulativeBillableSeconds": {
+            "type": "integer"
+          },
+          "grossAmount": {
+            "type": "number"
+          },
+          "platformFeeAmount": {
+            "type": "number"
+          },
+          "providerAmount": {
+            "type": "number"
+          },
+          "capacityReleasedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        }
+      },
+      "GpuEarning": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "providerId": {
+            "type": "string"
+          },
+          "reservationId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "AVAILABLE",
+              "PAYOUT_PENDING",
+              "PAID",
+              "HELD",
+              "REVERSED"
+            ]
+          },
+          "grossAmount": {
+            "type": "number"
+          },
+          "platformFeeAmount": {
+            "type": "number"
+          },
+          "netAmount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "availableAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "payoutId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": "integer"
+          }
+        }
+      },
+      "EarningTotals": {
+        "type": "object",
+        "properties": {
+          "pending": {
+            "type": "number"
+          },
+          "available": {
+            "type": "number"
+          },
+          "payoutPending": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "held": {
+            "type": "number"
+          },
+          "reversed": {
+            "type": "number"
+          }
+        }
+      },
+      "PayoutProfile": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "STRIPE_CONNECT",
+              "BANK_TOKEN",
+              "PAYPAL",
+              "CRYPTO_WALLET",
+              "MANUAL"
+            ]
+          },
+          "destinationReference": {
+            "type": "string",
+            "description": "Processor-issued token or account reference; never raw credentials."
+          },
+          "destinationLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING_VERIFICATION",
+              "VERIFIED",
+              "ACTIVE",
+              "REJECTED"
+            ]
+          },
+          "revision": {
+            "type": "integer"
+          }
+        }
+      },
+      "GpuPayout": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "providerId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "REQUESTED",
+              "PROCESSING",
+              "PAID",
+              "FAILED",
+              "CANCELLED"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "earningIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "destinationMethod": {
+            "type": "string"
+          },
+          "destinationReference": {
+            "type": "string"
+          },
+          "processorReference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": "integer"
+          }
+        }
       }
     }
   }

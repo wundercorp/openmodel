@@ -7,6 +7,13 @@ workers_dev = true
 AUTH_ISSUER = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_EXAMPLE"
 AUTH_AUDIENCE = "replace-with-web-client-id,replace-with-cli-client-id"
 ALLOWED_ORIGINS = "https://openmodel.sh,https://www.openmodel.sh,https://walton.bot,https://www.walton.bot,http://localhost:5173"
+HYPERSCALER_SUBJECTS = ""
+CAPACITY_HEARTBEAT_MAX_AGE_SECONDS = "120"
+CAPACITY_ASSIGNMENT_TIMEOUT_SECONDS = "300"
+CAPACITY_EARNINGS_HOLD_SECONDS = "604800"
+CAPACITY_MINIMUM_PAYOUT_AMOUNT = "25"
+CAPACITY_PLATFORM_FEE_BPS = "1000"
+CAPACITY_ALLOW_EVENTUALLY_CONSISTENT_ALLOCATIONS = "false"
 
 [[kv_namespaces]]
 binding = "GATEWAY_REGISTRY"

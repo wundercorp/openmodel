@@ -9,6 +9,7 @@ export interface DashboardUser {
   permissions: string[];
   groups: string[];
   clientId?: string;
+  capacityRoles?: { provider: boolean; hyperscalerMaster: boolean };
 }
 
 export interface LocalModelRecord {
@@ -387,6 +388,11 @@ export interface GatewayRecord {
 }
 
 export type GpuCapacityStatus = "DRAFT" | "PUBLISHED" | "PAUSED";
+export type ProviderNodeStatus = "ACTIVE" | "DRAINING" | "DISABLED";
+export type ProviderNodeHealthStatus = "REGISTERING" | "READY" | "DEGRADED" | "OFFLINE";
+export type GpuReservationStatus = "ASSIGNED" | "ACCEPTED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "EXPIRED" | "DISPUTED";
+export type GpuEarningStatus = "PENDING" | "AVAILABLE" | "PAYOUT_PENDING" | "PAID" | "HELD" | "REVERSED";
+export type GpuPayoutStatus = "REQUESTED" | "PROCESSING" | "PAID" | "FAILED" | "CANCELLED";
 export type GpuAllocationMode = "EXCLUSIVE" | "MIG" | "TIME_SLICED";
 export type GpuConnectionMode =
   | "OPENMODEL_API"
@@ -400,6 +406,11 @@ export interface GpuCapacityListing {
   id: string;
   ownerId: string;
   ownerDisplayName: string;
+  workerNodeId?: string;
+  managedBy?: "HYPERSCALER_MASTER" | "PROVIDER_HANDOFF";
+  platformFeeBps?: number;
+  nodeHealthStatus?: ProviderNodeHealthStatus;
+  endpointAvailableAfterReservation?: boolean;
   title: string;
   description: string;
   gpuModel: string;
@@ -432,6 +443,7 @@ export interface GpuCapacityListing {
 export interface GpuCapacitySubmission {
   title: string;
   description?: string;
+  workerNodeId?: string;
   gpuModel: string;
   gpuCount: number;
   availableGpuCount?: number;
@@ -453,6 +465,125 @@ export interface GpuCapacitySubmission {
   checkoutUrl?: string;
   providerInstructions?: string;
   publish?: boolean;
+}
+
+export interface ProviderNode {
+  id: string;
+  ownerId: string;
+  ownerDisplayName: string;
+  name: string;
+  status: ProviderNodeStatus;
+  healthStatus: ProviderNodeHealthStatus;
+  gpuModel: string;
+  gpuCount: number;
+  availableGpuCount: number;
+  reportedAvailableGpuCount?: number;
+  reservedGpuCount?: number;
+  vramGbPerGpu: number;
+  allocationModes: GpuAllocationMode[];
+  runtime: string;
+  runtimeVersion?: string;
+  driverVersion?: string;
+  cudaVersion?: string;
+  endpointUrl?: string;
+  region: string;
+  tokenLastFour?: string;
+  lastHeartbeatAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  revision?: number;
+}
+
+export interface ProviderNodeSubmission {
+  name: string;
+  gpuModel: string;
+  gpuCount: number;
+  availableGpuCount?: number;
+  vramGbPerGpu: number;
+  allocationModes?: GpuAllocationMode[];
+  runtime?: string;
+  runtimeVersion?: string;
+  driverVersion?: string;
+  cudaVersion?: string;
+  endpointUrl?: string;
+  region?: string;
+}
+
+export interface GpuReservation {
+  id: string;
+  listingId: string;
+  nodeId: string;
+  providerId: string;
+  providerDisplayName: string;
+  buyerId: string;
+  buyerDisplayName: string;
+  status: GpuReservationStatus;
+  gpuCount: number;
+  requestedHours: number;
+  pricePerGpuHour: number;
+  currency: string;
+  providerAuthorizedAmount: number;
+  providerAmount: number;
+  workloadReference: string;
+  assignmentExpiresAt: string;
+  acceptedAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GpuEarning {
+  id: string;
+  reservationId: string;
+  providerId: string;
+  status: GpuEarningStatus;
+  grossAmount: number;
+  platformFeeAmount: number;
+  netAmount: number;
+  currency: string;
+  availableAt: string;
+  payoutId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GpuEarningsResponse {
+  earnings: GpuEarning[];
+  totals: Record<string, {
+    pending: number;
+    available: number;
+    payoutPending: number;
+    paid: number;
+    held: number;
+    reversed: number;
+  }>;
+}
+
+export interface GpuPayoutProfile {
+  id: string;
+  ownerId: string;
+  method: "STRIPE_CONNECT" | "BANK_TOKEN" | "PAYPAL" | "CRYPTO_WALLET" | "MANUAL";
+  destinationReference: string;
+  destinationLabel?: string;
+  status: "PENDING_VERIFICATION" | "VERIFIED" | "ACTIVE" | "REJECTED";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GpuPayout {
+  id: string;
+  providerId: string;
+  status: GpuPayoutStatus;
+  currency: string;
+  amount: number;
+  earningIds: string[];
+  destinationMethod: string;
+  requestedAt: string;
+  paidAt?: string;
+  failureMessage?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 const apiBaseUrl = String(
@@ -862,5 +993,89 @@ export async function setGpuCapacityStatus(
     { method: "POST", headers: { accept: "application/json" }, signal },
   );
   const payload = await readJsonResponse<{ data: GpuCapacityListing }>(response);
+  return payload.data;
+}
+
+export async function getProviderNodes(signal?: AbortSignal) {
+  const response = await cloudApiFetch("/v1/provider/nodes", {
+    headers: { accept: "application/json" }, cache: "no-store", signal,
+  });
+  const payload = await readJsonResponse<{ data: ProviderNode[] }>(response);
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
+export async function registerProviderNode(submission: ProviderNodeSubmission, signal?: AbortSignal) {
+  const response = await cloudApiFetch("/v1/provider/nodes", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify(submission), cache: "no-store", signal,
+  });
+  return readJsonResponse<{ data: ProviderNode; nodeToken: string }>(response);
+}
+
+export async function rotateProviderNodeToken(nodeId: string, signal?: AbortSignal) {
+  const response = await cloudApiFetch(`/v1/provider/nodes/${encodeURIComponent(nodeId)}/rotate-token`, {
+    method: "POST", headers: { accept: "application/json" }, signal,
+  });
+  return readJsonResponse<{ data: ProviderNode; nodeToken: string }>(response);
+}
+
+export async function setProviderNodeStatus(nodeId: string, action: "enable" | "drain" | "disable", signal?: AbortSignal) {
+  const response = await cloudApiFetch(`/v1/provider/nodes/${encodeURIComponent(nodeId)}/${action}`, {
+    method: "POST", headers: { accept: "application/json" }, signal,
+  });
+  const payload = await readJsonResponse<{ data: ProviderNode }>(response);
+  return payload.data;
+}
+
+export async function getProviderReservations(signal?: AbortSignal) {
+  const response = await cloudApiFetch("/v1/provider/reservations", {
+    headers: { accept: "application/json" }, cache: "no-store", signal,
+  });
+  const payload = await readJsonResponse<{ data: GpuReservation[] }>(response);
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
+export async function getProviderEarnings(signal?: AbortSignal): Promise<GpuEarningsResponse> {
+  const response = await cloudApiFetch("/v1/provider/earnings", {
+    headers: { accept: "application/json" }, cache: "no-store", signal,
+  });
+  const payload = await readJsonResponse<{ data: GpuEarning[]; totals: GpuEarningsResponse["totals"] }>(response);
+  return { earnings: Array.isArray(payload.data) ? payload.data : [], totals: payload.totals ?? {} };
+}
+
+export async function getProviderPayoutProfile(signal?: AbortSignal) {
+  const response = await cloudApiFetch("/v1/provider/payout-profile", {
+    headers: { accept: "application/json" }, cache: "no-store", signal,
+  });
+  const payload = await readJsonResponse<{ data: GpuPayoutProfile | null }>(response);
+  return payload.data;
+}
+
+export async function updateProviderPayoutProfile(submission: Pick<GpuPayoutProfile, "method" | "destinationReference"> & { destinationLabel?: string }, signal?: AbortSignal) {
+  const response = await cloudApiFetch("/v1/provider/payout-profile", {
+    method: "PUT",
+    headers: { accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify(submission), cache: "no-store", signal,
+  });
+  const payload = await readJsonResponse<{ data: GpuPayoutProfile }>(response);
+  return payload.data;
+}
+
+export async function getProviderPayouts(signal?: AbortSignal) {
+  const response = await cloudApiFetch("/v1/provider/payouts", {
+    headers: { accept: "application/json" }, cache: "no-store", signal,
+  });
+  const payload = await readJsonResponse<{ data: GpuPayout[] }>(response);
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
+export async function requestProviderPayout(currency = "USD", amount?: number, signal?: AbortSignal) {
+  const response = await cloudApiFetch("/v1/provider/payouts", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify({ currency, amount }), cache: "no-store", signal,
+  });
+  const payload = await readJsonResponse<{ data: GpuPayout }>(response);
   return payload.data;
 }

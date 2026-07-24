@@ -95,24 +95,20 @@ function resolveWorkspaceManifest(workspaceName) {
   fail(`Unable to find workspace ${workspaceName}.`);
 }
 
-function parsePackedFilename(commandResult) {
-  const output = commandResult.stdout.trim();
-  try {
-    const parsedOutput = JSON.parse(output);
-    const packedRecord = Array.isArray(parsedOutput) ? parsedOutput[0] : parsedOutput;
-    if (packedRecord?.filename) {
-      return packedRecord.filename;
-    }
-  } catch {
-    // Fall back to the final output line for older npm versions.
+function resolvePackedTarballPath(destinationDirectory) {
+  const tarballFilenames = readdirSync(destinationDirectory)
+    .filter((entryName) => entryName.endsWith(".tgz"))
+    .sort();
+
+  if (tarballFilenames.length === 0) {
+    fail(`npm pack did not create a .tgz file in ${destinationDirectory}.`);
   }
 
-  const outputLines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const finalLine = outputLines.at(-1);
-  if (!finalLine) {
-    fail("npm pack did not report a tarball filename.");
+  if (tarballFilenames.length > 1) {
+    fail(`npm pack created multiple .tgz files in ${destinationDirectory}: ${tarballFilenames.join(", ")}`);
   }
-  return finalLine;
+
+  return path.join(destinationDirectory, tarballFilenames[0]);
 }
 
 function extractTarball(tarballPath, destinationDirectory) {
@@ -180,7 +176,7 @@ function main() {
   try {
     runCommand("mkdir", ["-p", localPackDirectory, publishedPackDirectory, localExtractDirectory, publishedExtractDirectory]);
 
-    const localPackResult = runCommand(
+    runCommand(
       "npm",
       [
         "pack",
@@ -194,9 +190,9 @@ function main() {
       ],
       { captureOutput: true },
     );
-    const localTarballPath = path.join(localPackDirectory, parsePackedFilename(localPackResult));
+    const localTarballPath = resolvePackedTarballPath(localPackDirectory);
 
-    const publishedPackResult = runCommand(
+    runCommand(
       "npm",
       [
         "pack",
@@ -209,7 +205,7 @@ function main() {
       ],
       { captureOutput: true },
     );
-    const publishedTarballPath = path.join(publishedPackDirectory, parsePackedFilename(publishedPackResult));
+    const publishedTarballPath = resolvePackedTarballPath(publishedPackDirectory);
 
     extractTarball(localTarballPath, localExtractDirectory);
     extractTarball(publishedTarballPath, publishedExtractDirectory);

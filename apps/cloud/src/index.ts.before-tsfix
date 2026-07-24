@@ -307,8 +307,7 @@ async function handleHyperscalerReservationsRoute(request: Request, path: string
         if (existing) return json({ data: existing, idempotent: true }, 200, corsHeaders);
       }
       const listing = await readRecord(env, String(body.listingId ?? ""));
-      if (!listing || listing.recordType !== "GPU_CAPACITY") throw new HttpError(404, "GPU capacity listing was not found.");
-      const node = listing.workerNodeId ? await readRecord(env, listing.workerNodeId) : undefined;
+      const node = listing?.workerNodeId ? await readRecord(env, listing.workerNodeId) : undefined;
       const reservationId = body.clientRequestId
         ? `reservation_${(await sha256Hex(`reservation:${user.sub}:${String(body.clientRequestId)}`)).slice(0, 48)}`
         : `reservation_${crypto.randomUUID()}`;
@@ -406,38 +405,29 @@ async function handleHyperscalerPayoutsRoute(request: Request, path: string, env
   const match = path.match(/^\/v1\/hyperscaler\/payouts\/([^/]+)\/(processing|paid|failed)$/);
   if (!match || request.method !== "POST") throw new HttpError(404, "Hyperscaler payout route was not found.");
   const payout = await readRecord(env, decodeURIComponent(match[1]));
-  if (!payout || payout.recordType !== "GPU_PAYOUT") throw new HttpError(404, "Payout was not found.");
-  const updated: CapacityRecord = transitionPayout(payout, match[2], await readOptionalJson(request));
-  const earningIds = Array.isArray(payout.earningIds) ? payout.earningIds.map((id: unknown) => String(id)) : [];
+  const updated = transitionPayout(payout, match[2], await readOptionalJson(request));
+  const earningIds = Array.isArray(payout?.earningIds) ? payout.earningIds : [];
   if (earningIds.length === 0) throw new HttpError(409, "Payout has no earning records and cannot be settled.");
-  const earnings = await Promise.all(earningIds.map((id) => readRecord(env, id)));
-  if (earnings.some((earning) => earning === undefined)) throw new HttpError(409, "One or more payout earning records are missing.");
-  const verifiedEarnings = earnings.filter((earning): earning is CapacityRecord => earning !== undefined);
+  const earnings = await Promise.all(earningIds.map((id: string) => readRecord(env, id)));
+  if (earnings.some((earning) => !earning)) throw new HttpError(409, "One or more payout earning records are missing.");
+  const verifiedEarnings = earnings as CapacityRecord[];
   for (const earning of verifiedEarnings) {
     if (earning.recordType !== "GPU_EARNING" || earning.providerId !== payout.providerId || earning.currency !== payout.currency) throw new HttpError(409, "A payout earning record does not match the payout owner or currency.");
     if (earning.payoutId !== payout.id || earning.status !== "PAYOUT_PENDING") throw new HttpError(409, "A payout earning record is no longer reserved for this payout.");
   }
   const earningAmount = roundMoney(verifiedEarnings.reduce((total, earning) => total + Number(earning.netAmount ?? 0), 0));
   if (earningAmount !== roundMoney(Number(payout.amount))) throw new HttpError(409, "Payout amount does not match its earning records.");
-  const updatedEarnings: CapacityRecord[] = verifiedEarnings.map((earning): CapacityRecord => ({
-    ...earning,
-    status: updated.status === "PAID" ? "PAID" : updated.status === "FAILED" ? "AVAILABLE" : "PAYOUT_PENDING",
-    payoutId: updated.status === "FAILED" ? null : payout.id,
-    paidAt: updated.status === "PAID" ? updated.paidAt : earning.paidAt,
-    updatedAt: new Date().toISOString(),
-    revision: Number(earning.revision ?? 0) + 1
-  }));
-  const originalsById = new Map(verifiedEarnings.map((earning) => [String(earning.id), earning]));
+  const updatedEarnings = verifiedEarnings.map((earning) => ({ ...earning, status: updated.status === "PAID" ? "PAID" : updated.status === "FAILED" ? "AVAILABLE" : "PAYOUT_PENDING", payoutId: updated.status === "FAILED" ? null : payout.id, paidAt: updated.status === "PAID" ? updated.paidAt : earning.paidAt, updatedAt: new Date().toISOString(), revision: Number(earning.revision ?? 0) + 1 }));
   const updatedEarningIds: string[] = [];
   try {
     for (const earning of updatedEarnings) {
-      const original = originalsById.get(String(earning.id));
-      if (!original) throw new HttpError(409, "A payout earning record changed during settlement.");
-      await saveRecordWithRevision(env, earning, Number(original.revision ?? 1));
-      updatedEarningIds.push(String(earning.id));
+      const original = earnings.find((candidate) => candidate.id === earning.id);
+      await saveRecordWithRevision(env, earning, original?.revision);
+      updatedEarningIds.push(earning.id);
     }
-    await saveRecordWithRevision(env, updated, Number(payout.revision ?? 1));
+    await saveRecordWithRevision(env, updated, payout.revision);
   } catch (error) {
+    const originalsById = new Map(verifiedEarnings.map((earning) => [earning.id, earning]));
     await Promise.allSettled(updatedEarningIds.map(async (earningId) => {
       const current = await readRecord(env, earningId);
       const original = originalsById.get(earningId);
@@ -527,7 +517,7 @@ async function reserveCapacity(env: Env, listing: CapacityRecord, reservation: C
 async function finalizeReservation(env: Env, previous: CapacityRecord, updated: CapacityRecord, options: { createEarningRecord?: boolean } = {}) {
   if (previous.capacityReleasedAt) throw new HttpError(409, "Reservation capacity was already released.");
   const timestamp = new Date().toISOString();
-  const finalized: CapacityRecord = { ...updated, capacityReleasedAt: timestamp, updatedAt: timestamp };
+  const finalized = { ...updated, capacityReleasedAt: timestamp, updatedAt: timestamp };
   const listing = await readRecord(env, previous.listingId);
   const node = await readRecord(env, previous.nodeId);
   if (!listing || !node) throw new HttpError(409, "Reservation listing or provider node no longer exists.");

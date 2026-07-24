@@ -13,7 +13,8 @@ test('returns the public health response', async () => {
   assert.deepEqual(JSON.parse(response.body), {
     status: 'ok',
     service: 'openmodel-aws-api',
-    apiAliases: ['https://api.openmodel.sh', 'https://api.walton.bot']
+    apiAliases: ['https://api.openmodel.sh', 'https://api.walton.bot'],
+    capacityControlPlane: 'hyperscaler-master-v1'
   });
   assert.equal(response.headers['access-control-allow-origin'], 'https://openmodel.sh');
 });

@@ -21,6 +21,22 @@ import {
   listGpuCapacity
 } from './lib/capacity.js';
 import {
+  changeProviderAssignment,
+  changeProviderNodeStatus,
+  configurePayoutProfile,
+  enrollProviderNode,
+  formatProviderAssignments,
+  formatProviderNodes,
+  getProviderEarnings,
+  listProviderAssignments,
+  listProviderNodes,
+  providerHelpText,
+  providerNodeHeartbeat,
+  requestProviderPayout,
+  rotateProviderNodeToken,
+  runProviderAgent
+} from './lib/provider.js';
+import {
   appendTelemetryEvents,
   markTelemetryEventsSynced,
   readTelemetryEvents,
@@ -51,6 +67,7 @@ Commands:
   telemetry setup <claude-code|codex|openrouter|bs> [--launch] [--port 11435]
   telemetry summary|events|sync|emit
   capacity expose|list|mine|publish|pause|heartbeat|detect
+  provider enroll|nodes|heartbeat|agent|assignments|accept|start|usage|complete|fail|enable|drain|disable|earnings|payout
   version
   help
 
@@ -89,9 +106,76 @@ export async function main(argv) {
   if (command === 'setup') return telemetrySetupCommand(positionals, flags);
   if (command === 'telemetry') return telemetryCommand(positionals, flags);
   if (command === 'capacity') return capacityCommand(positionals, flags);
+  if (command === 'provider') return providerCommand(positionals, flags);
   throw new Error(`Unknown command "${command}". Run om help.`);
 }
 
+
+
+async function providerCommand(positionals, flags) {
+  const action = String(positionals[0] ?? 'help').toLowerCase();
+  if (action === 'help' || action === '--help' || action === '-h') {
+    process.stdout.write(providerHelpText());
+    return;
+  }
+  if (action === 'enroll' || action === 'register') {
+    process.stdout.write(`${JSON.stringify(await enrollProviderNode(flags), null, 2)}
+`);
+    return;
+  }
+  if (action === 'nodes' || action === 'status') {
+    const result = await listProviderNodes(flags);
+    process.stdout.write(`${formatProviderNodes(result.nodes)}
+`);
+    return;
+  }
+  if (action === 'heartbeat') {
+    process.stdout.write(`${JSON.stringify(await providerNodeHeartbeat(flags), null, 2)}
+`);
+    return;
+  }
+  if (action === 'agent') {
+    await runProviderAgent(flags);
+    return;
+  }
+  if (action === 'assignments' || action === 'work') {
+    const result = await listProviderAssignments(flags);
+    process.stdout.write(`${formatProviderAssignments(result.assignments)}
+`);
+    return;
+  }
+  if (['accept', 'start', 'usage', 'complete', 'fail'].includes(action)) {
+    process.stdout.write(`${JSON.stringify(await changeProviderAssignment(positionals[1], action, flags), null, 2)}
+`);
+    return;
+  }
+  if (['enable', 'drain', 'disable'].includes(action)) {
+    process.stdout.write(`${JSON.stringify(await changeProviderNodeStatus(action, flags), null, 2)}
+`);
+    return;
+  }
+  if (action === 'rotate-token') {
+    process.stdout.write(`${JSON.stringify(await rotateProviderNodeToken(flags), null, 2)}
+`);
+    return;
+  }
+  if (action === 'earnings') {
+    process.stdout.write(`${JSON.stringify(await getProviderEarnings(flags), null, 2)}
+`);
+    return;
+  }
+  if (action === 'payout-profile') {
+    process.stdout.write(`${JSON.stringify(await configurePayoutProfile(flags), null, 2)}
+`);
+    return;
+  }
+  if (action === 'payout') {
+    process.stdout.write(`${JSON.stringify(await requestProviderPayout(flags), null, 2)}
+`);
+    return;
+  }
+  throw new Error('Usage: om provider enroll|nodes|heartbeat|agent|assignments|accept|start|usage|complete|fail|enable|drain|disable|rotate-token|earnings|payout-profile|payout');
+}
 
 async function capacityCommand(positionals, flags) {
   const action = String(positionals[0] ?? 'help').toLowerCase();

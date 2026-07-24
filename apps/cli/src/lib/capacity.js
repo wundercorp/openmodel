@@ -5,15 +5,15 @@ import { getValidAccessToken } from './auth.js';
 
 const execFileAsync = promisify(execFile);
 
-function apiCandidates(flags = {}) {
+export function apiCandidates(flags = {}) {
   const explicitUrl = flags.apiUrl ? String(flags.apiUrl) : undefined;
   const primaryUrl = explicitUrl ?? process.env.OPENMODEL_CLOUD_API_URL ?? 'https://api.openmodel.sh';
   const fallbackUrl = process.env.OPENMODEL_CLOUD_API_FALLBACK_URL ?? 'https://api.walton.bot';
   return [...new Set([primaryUrl, fallbackUrl].map((value) => String(value).trim().replace(/\/$/, '')).filter(Boolean))];
 }
 
-async function capacityRequest(path, options = {}) {
-  const token = options.auth === false ? undefined : await getValidAccessToken();
+export async function capacityApiRequest(path, options = {}) {
+  const token = options.nodeToken ? undefined : options.auth === false ? undefined : await getValidAccessToken();
   const candidates = apiCandidates({ apiUrl: options.apiUrl });
   const errors = [];
 
@@ -24,7 +24,7 @@ async function capacityRequest(path, options = {}) {
         headers: {
           accept: 'application/json',
           ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
-          ...(token ? { authorization: `Bearer ${token}` } : {})
+          ...(options.nodeToken ? { authorization: `Node ${options.nodeToken}` } : token ? { authorization: `Bearer ${token}` } : {})
         },
         body: options.body === undefined ? undefined : JSON.stringify(options.body)
       });
@@ -126,7 +126,7 @@ function booleanFlag(flags, name, fallback = false) {
   return !['false', '0', 'no'].includes(String(value).toLowerCase());
 }
 
-function buildListingPayload(flags, detectedGpu) {
+function buildListingPayload(flags, detectedGpu, defaults = {}) {
   const gpuModel = stringFlag(flags, 'gpu-model', detectedGpu?.gpuModel ?? '');
   const gpuCount = requireInteger(flags['gpus'], '--gpus', detectedGpu?.gpuCount);
   const vramGbPerGpu = requireNumber(flags['vram-gb'], '--vram-gb', detectedGpu?.vramGbPerGpu);
@@ -141,6 +141,7 @@ function buildListingPayload(flags, detectedGpu) {
 
   return {
     title: stringFlag(flags, 'title', `${gpuCount}× ${gpuModel}`),
+    workerNodeId: stringFlag(flags, 'node-id', defaults.workerNodeId ?? '') || undefined,
     description: stringFlag(flags, 'description', 'GPU capacity exposed through OpenModel.'),
     gpuModel,
     gpuCount,
@@ -168,19 +169,19 @@ function buildListingPayload(flags, detectedGpu) {
 
 export async function exposeGpuCapacity(flags) {
   const detectedGpu = await detectNvidiaGpus();
-  const payload = buildListingPayload(flags, detectedGpu);
+  const config = await readConfig();
+  const payload = buildListingPayload(flags, detectedGpu, { workerNodeId: config.provider?.lastNodeId });
 
   if (booleanFlag(flags, 'dry-run', false)) {
     return { dryRun: true, detectedGpu, payload };
   }
 
-  const { payload: response, apiBaseUrl } = await capacityRequest('/v1/capacity/gpu', {
+  const { payload: response, apiBaseUrl } = await capacityApiRequest('/v1/capacity/gpu', {
     method: 'POST',
     body: payload,
     apiUrl: flags['api-url']
   });
   const listing = response.data;
-  const config = await readConfig();
   config.capacity = {
     ...(config.capacity ?? {}),
     lastListingId: listing.id,
@@ -192,7 +193,7 @@ export async function exposeGpuCapacity(flags) {
 
 export async function listGpuCapacity({ mine = false, apiUrl } = {}) {
   const path = mine ? '/v1/capacity/gpu/mine' : '/v1/capacity/gpu';
-  const { payload, apiBaseUrl } = await capacityRequest(path, { auth: mine, apiUrl });
+  const { payload, apiBaseUrl } = await capacityApiRequest(path, { auth: mine, apiUrl });
   return { listings: Array.isArray(payload.data) ? payload.data : [], apiBaseUrl };
 }
 
@@ -204,7 +205,7 @@ export async function changeGpuCapacityStatus(id, action, flags = {}) {
   if (!id) {
     throw new Error(`Usage: om capacity ${action} <listing-id>`);
   }
-  const { payload, apiBaseUrl } = await capacityRequest(`/v1/capacity/gpu/${encodeURIComponent(id)}/${action}`, {
+  const { payload, apiBaseUrl } = await capacityApiRequest(`/v1/capacity/gpu/${encodeURIComponent(id)}/${action}`, {
     method: 'POST',
     body: action === 'heartbeat' ? {
       availableGpuCount: flags['available-gpus'] === undefined ? undefined : requireInteger(flags['available-gpus'], '--available-gpus'),
@@ -233,5 +234,5 @@ export function formatGpuCapacityTable(listings) {
 }
 
 export function capacityHelpText() {
-  return `om capacity <command> [options]\n\nCommands:\n  expose --price-hour 0.75 [--endpoint https://gpu.example.com]\n  list\n  mine\n  publish [listing-id]\n  pause [listing-id]\n  heartbeat [listing-id] [--available-gpus 1]\n  detect\n\nExpose options:\n  --gpu-model "NVIDIA RTX 4090"\n  --gpus 1\n  --vram-gb 24\n  --price-hour 0.75\n  --endpoint https://gpu.example.com\n  --connection OPENMODEL_API|HTTPS_API|SSH|WIREGUARD|TAILSCALE|MANUAL\n  --allocation EXCLUSIVE|MIG|TIME_SLICED\n  --location "Northern Virginia"\n  --minimum-hours 1\n  --max-hours 24\n  --draft\n  --dry-run\n  --api-url https://api.openmodel.sh\n`;
+  return `om capacity <command> [options]\n\nCommands:\n  expose --price-hour 0.75 [--node-id node_123] [--endpoint https://gpu.example.com]\n  list\n  mine\n  publish [listing-id]\n  pause [listing-id]\n  heartbeat [listing-id] [--available-gpus 1]\n  detect\n\nExpose options:\n  --gpu-model "NVIDIA RTX 4090"\n  --gpus 1\n  --vram-gb 24\n  --price-hour 0.75\n  --endpoint https://gpu.example.com\n  --connection OPENMODEL_API|HTTPS_API|SSH|WIREGUARD|TAILSCALE|MANUAL\n  --allocation EXCLUSIVE|MIG|TIME_SLICED\n  --location "Northern Virginia"\n  --minimum-hours 1\n  --max-hours 24\n  --draft\n  --dry-run\n  --api-url https://api.openmodel.sh\n`;
 }

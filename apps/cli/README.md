@@ -105,37 +105,79 @@ om run qwen2.5:3b "Explain gateway interoperability."
 | `om capacity mine` | Show your provider listings |
 | `om capacity publish [id]` | Publish a draft or paused listing |
 | `om capacity pause [id]` | Pause a listing |
-| `om capacity heartbeat [id]` | Update availability and runtime status |
+| `om capacity heartbeat [id]` | Update a legacy provider-handoff listing |
+| `om provider enroll` | Register a GPU worker and store its one-time node token |
+| `om provider agent [--once]` | Heartbeat and poll assignments with retry backoff |
+| `om provider nodes` | Show registered worker status and effective capacity |
+| `om provider assignments` | Show active assignments for the selected worker |
+| `om provider accept|start|usage|complete|fail <id>` | Advance and meter an assignment |
+| `om provider drain|disable|enable` | Manage worker maintenance state |
+| `om provider earnings` | Show pending, available, held, and paid earnings |
+| `om provider payout-profile` | Configure a tokenized payout destination |
+| `om provider payout` | Request settlement of available earnings |
 | `om help` | Show CLI help |
 
 Aliases are available for `om list` as `om ls` and `om remove` as `om rm`.
 
-## Expose GPU capacity
+## Become a GPU provider
 
-Authenticate once and inspect detected NVIDIA hardware:
+Authenticate and enroll the physical worker. `nvidia-smi` supplies model, count, VRAM, and driver when available:
 
 ```bash
 om login
-om capacity detect
+om provider enroll \
+  --name worker-1 \
+  --endpoint https://gpu-provider.example.com/v1 \
+  --region eu-central
 ```
 
-Create and publish a listing. GPU model, count, VRAM, and driver are detected through `nvidia-smi` when possible:
+Start the safe pull agent:
+
+```bash
+om provider agent --interval-seconds 30
+```
+
+The agent heartbeats, reports provider-observed availability, and pulls assignments with a node-scoped token. It uses jitter and bounded exponential retry. It does not run arbitrary workload commands automatically. `--once` is suitable for cron, systemd timers, and tests.
+
+Publish a listing linked to the enrolled worker:
 
 ```bash
 om capacity expose \
+  --node-id <node-id> \
   --price-hour 0.75 \
-  --endpoint https://gpu-provider.example.com/v1 \
   --allocation EXCLUSIVE \
-  --location "Northern Virginia"
+  --connection OPENMODEL_API \
+  --location "Location shared after purchase"
 ```
 
-Keep the dashboard availability current:
+Process a reservation explicitly:
 
 ```bash
-om capacity heartbeat --available-gpus 1 --runtime-status ready
+om provider assignments
+om provider accept <reservation-id> --session-reference local-session-123
+om provider start <reservation-id>
+om provider usage <reservation-id> --sequence 1 --billable-seconds 300
+om provider complete <reservation-id> --sequence 2 --billable-seconds 3600
 ```
 
-The most recently created listing is used when an ID is omitted. Use `--draft` to create without publishing, and use `--dry-run` to inspect the payload without contacting the API. `OPENMODEL_CLOUD_API_URL` defaults to `https://api.openmodel.sh`; `OPENMODEL_CLOUD_API_FALLBACK_URL` defaults to `https://api.walton.bot`. Both hostnames must be configured to route to the same deployed API for seamless failover.
+Use `om provider drain` before maintenance. A draining worker receives no new reservations but can finish existing work. The master rejects disable while active assignments exist.
+
+Configure a processor-issued payout reference and request settlement after verification and the earnings hold:
+
+```bash
+om provider payout-profile \
+  --method STRIPE_CONNECT \
+  --destination-reference acct_123 \
+  --destination-label "Business account"
+om provider earnings
+om provider payout --currency USD
+```
+
+Never pass raw bank credentials, card data, wallet private keys, passwords, or API secrets as a destination reference. Changing the destination resets verification.
+
+`OPENMODEL_CLOUD_API_URL` defaults to `https://api.openmodel.sh`; `OPENMODEL_CLOUD_API_FALLBACK_URL` defaults to `https://api.walton.bot`. Both hostnames must route to the same identity and capacity deployment.
+
+For the reservation, metering, earnings, payout, security, and failure-state contract, see `../../docs/gpu-provider-marketplace.md`.
 
 ## Model references
 

@@ -13,8 +13,10 @@ It provides:
 - `om pull` for Hugging Face GGUF files, direct artifact URLs, Ollama model references, and contributed gateways
 - `om run` for llama.cpp and Ollama runtimes
 - `om serve` with OpenAI-compatible and Ollama-compatible local endpoints
-- `om capacity` for detecting, listing, publishing, pausing, and heartbeating provider GPU capacity
-- A dashboard GPU-capacity page with provider listings and public availability visualization
+- `om capacity` for pricing and publishing provider GPU inventory
+- `om provider` for worker enrollment, heartbeats, assignment processing, earnings, and payouts
+- A hyperscaler master control plane with reservations, metering, fee snapshots, disputes, and settlement states
+- A dashboard GPU marketplace with worker health, earnings, payout setup, and public availability
 - Explicit gateway package registration with a versioned SDK contract
 - OIDC device login for the CLI through `auth.wundercorp.co`
 - OIDC Authorization Code with PKCE for the website
@@ -82,33 +84,54 @@ The local server supports:
 
 The web dashboard uses the catalog and install-job endpoints for a one-click starter-model download with local progress reporting. Its Metrics route remains usable without authentication for local request counts, estimated token usage, latency, throughput, runtime activity, per-model usage, and recent requests. Authenticated sessions also load the Wundership monthly allowance, provider/model pricing estimates, local-versus-cloud cost comparisons, usage and cost charts, and idempotent usage synchronization. Installation and metrics-reset requests remain restricted to configured browser origins.
 
-## GPU capacity marketplace
+## GPU provider marketplace
 
-OpenModel now owns the GPU-provider workflow that was previously embedded in the Walton mobile app. Providers can expose hardware from either the CLI or the authenticated dashboard, while buyers can inspect published availability through the dashboard or public API.
+OpenModel supports a master/worker marketplace: the cloud hyperscaler is the authenticated control-plane master, while provider-owned GPU machines are worker nodes that make outbound heartbeat and assignment-poll requests. Public listings never reveal worker credentials, private network details, or unallocated endpoints.
 
-Fast CLI setup:
+Fast provider setup:
 
 ```bash
 om login
-om capacity detect
-om capacity expose \
-  --price-hour 0.75 \
+om provider enroll \
+  --name worker-1 \
   --endpoint https://gpu-provider.example.com/v1
-om capacity heartbeat --available-gpus 1 --runtime-status ready
+om provider agent --interval-seconds 30
+om capacity expose \
+  --node-id <node-id> \
+  --price-hour 0.75 \
+  --allocation EXCLUSIVE
 ```
 
-`om capacity expose` uses `nvidia-smi` when available to detect GPU model, count, VRAM, and driver version. Explicit flags are available for mixed or non-NVIDIA systems.
+The agent detects NVIDIA hardware through `nvidia-smi` when available, stores a one-time node token with mode `0600`, sends heartbeats, and pulls assignments. It deliberately does not execute arbitrary buyer commands automatically. Providers explicitly accept, start, meter, complete, or fail each reservation:
 
-The dashboard route is **GPU Capacity**. It supports creating draft or published listings, seeing owned listings, publishing or pausing them, and visualizing public available capacity.
+```bash
+om provider assignments
+om provider accept <reservation-id>
+om provider start <reservation-id>
+om provider usage <reservation-id> --sequence 1 --billable-seconds 300
+om provider complete <reservation-id> --sequence 2 --billable-seconds 3600
+```
 
-The API contract is available under both hostnames when both custom domains point at the same deployment:
+Completed usage creates an earning after the configured hold period. Payout destinations are processor-issued references that require hyperscaler verification:
+
+```bash
+om provider earnings
+om provider payout-profile --method STRIPE_CONNECT --destination-reference acct_123
+om provider payout --currency USD
+```
+
+The AWS implementation uses DynamoDB transactions to update listing capacity, physical-node reservations, reservation state, earnings, and payout claims. Assignment expiration releases abandoned capacity, multiple listings cannot overbook one node, usage is monotonic and capped, contract-sensitive listing fields are locked during active reservations, and payout destination changes reset verification.
+
+The public API is available under both hostnames when both custom domains point to the same deployment:
 
 ```text
 https://api.openmodel.sh/v1/capacity/gpu
 https://api.walton.bot/v1/capacity/gpu
 ```
 
-Provider management requires the same OpenModel bearer identity used by `om login` and the web dashboard. The public listing endpoint does not require authentication. Configure `GPU_CAPACITY_TABLE` for AWS or `GPU_CAPACITY_REGISTRY` for Cloudflare. See `docs/gpu-capacity.md`.
+Cloudflare KV remains suitable for public inventory and development. Transactional allocation and settlement fail closed by default because KV cannot guarantee protection against overbooking or double payout. Use AWS as the production hyperscaler master or add a strongly consistent Cloudflare coordinator.
+
+See `docs/gpu-capacity.md`, `docs/gpu-provider-marketplace.md`, and `docs/openapi-gpu-capacity.json`.
 
 ## baseui.sh design system
 

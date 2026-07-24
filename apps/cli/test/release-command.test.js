@@ -58,7 +58,7 @@ if (argumentsList[0] === 'pack') {
   const filename = 'fixture.tgz';
   fs.mkdirSync(destinationPath, { recursive: true });
   fs.copyFileSync(${JSON.stringify(fixtureTarballPath)}, path.join(destinationPath, filename));
-  process.stdout.write(JSON.stringify([{ filename }]) + '\\n');
+  process.stdout.write('\\u001b[32m' + JSON.stringify([{ filename }]) + '\\u001b[0m\\n');
   process.exit(0);
 }
 if (argumentsList[0] === 'publish') {
@@ -305,7 +305,7 @@ if (argumentsList[0] === 'pack') {
     tarballPath = path.join(destinationPath, filename);
     fs.copyFileSync(sourcePath, tarballPath);
   }
-  process.stdout.write(JSON.stringify([{ filename }]) + '\\n');
+  process.stdout.write('\\u001b[32m' + JSON.stringify([{ filename }]) + '\\u001b[0m\\n');
   process.exit(process.exitCode || 0);
 }
 process.exit(2);
