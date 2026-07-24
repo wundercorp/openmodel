@@ -47,6 +47,8 @@ export async function getRuntimeStatus(manifests = []) {
         id: runtime.id,
         available: Boolean(status.available),
         binary: status.binary,
+        source: status.source,
+        version: status.version,
         installCommand: getRuntimeInstallCommand(runtime.id)
       };
     })

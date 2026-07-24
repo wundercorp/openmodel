@@ -1,14 +1,38 @@
 import { commandExists, runProcess } from '../lib/process.js';
+import { getPaths } from '../lib/paths.js';
+import { readConfig } from '../lib/config.js';
 
 const candidates = ['llama-completion', 'llama-cli', 'main'];
 
-async function findBinary() {
+const fedoraCandidates = [
+  `${process.env.HOME}/.local/opt/llama-vulkan/llama-cli`,
+  '/usr/local/bin/llama-cli',
+  '/opt/llama.cpp/bin/llama-cli',
+  `${process.env.HOME}/.local/bin/llama-cli`
+];
+
+async function findBinary(configBinary) {
+  if (configBinary) {
+    if (await commandExists(configBinary)) {
+      return { binary: configBinary, source: 'config' };
+    }
+    return { binary: undefined, source: 'config-not-found' };
+  }
+
   for (const candidate of candidates) {
     if (await commandExists(candidate)) {
-      return candidate;
+      return { binary: candidate, source: 'path' };
     }
   }
-  return undefined;
+
+  for (const fedoraPath of fedoraCandidates) {
+    const expanded = fedoraPath.replace('~', process.env.HOME ?? '');
+    if (await commandExists(expanded)) {
+      return { binary: expanded, source: 'fedora-candidate' };
+    }
+  }
+
+  return { binary: undefined, source: 'not-found' };
 }
 
 function buildGenerateArguments(modelPath, prompt, options = {}) {
@@ -56,6 +80,18 @@ function removeTrailingCliLines(value) {
   return lines.join('\n').trim();
 }
 
+async function getBinaryVersion(binary) {
+  try {
+    const result = await runProcess(binary, ['--version'], { capture: true });
+    const output = String(result.stdout ?? '').trim() || String(result.stderr ?? '').trim();
+    const match = output.match(/version[:\s]*([0-9.]+[a-z0-9.-]*)/i) ||
+                  output.match(/([0-9]+\.[0-9]+(\.[0-9]+)?)/);
+    return match ? match[1] : output.split('\n')[0]?.slice(0, 80) || 'unknown';
+  } catch {
+    return undefined;
+  }
+}
+
 function extractGeneratedText(rawOutput, prompt) {
   const normalizedOutput = removeAnsiSequences(rawOutput)
     .replace(/\r\n?/g, '\n')
@@ -97,16 +133,23 @@ function extractGeneratedText(rawOutput, prompt) {
 export const llamaCppRuntime = {
   id: 'llama.cpp',
   async status() {
-    const binary = await findBinary();
-    return { available: Boolean(binary), binary };
+    const config = await readConfig();
+    const configBinary = config.runtimes?.['llama.cpp']?.binary;
+    const { binary, source } = await findBinary(configBinary);
+    const version = binary ? await getBinaryVersion(binary) : undefined;
+    return { available: Boolean(binary), binary, source, version };
   },
   async available() {
-    return Boolean(await findBinary());
+    const config = await readConfig();
+    const configBinary = config.runtimes?.['llama.cpp']?.binary;
+    return Boolean((await findBinary(configBinary)).binary);
   },
   async run(manifest, prompt, options = {}) {
-    const binary = await findBinary();
+    const config = await readConfig();
+    const configBinary = config.runtimes?.['llama.cpp']?.binary;
+    const { binary } = await findBinary(configBinary);
     if (!binary) {
-      throw new Error('llama.cpp was not found. Install llama.cpp and ensure its binaries are on PATH.');
+      throw new Error('llama.cpp was not found. Install llama.cpp and ensure its binaries are on PATH, or configure an explicit path in ~/.openmodel/config.json.');
     }
     const modelPath = manifest.artifactPaths?.[0];
     if (!modelPath) {
@@ -115,9 +158,11 @@ export const llamaCppRuntime = {
     await runProcess(binary, buildGenerateArguments(modelPath, prompt, options));
   },
   async generate(manifest, prompt, options = {}) {
-    const binary = await findBinary();
+    const config = await readConfig();
+    const configBinary = config.runtimes?.['llama.cpp']?.binary;
+    const { binary } = await findBinary(configBinary);
     if (!binary) {
-      throw new Error('llama.cpp was not found. Install llama.cpp and ensure its binaries are on PATH.');
+      throw new Error('llama.cpp was not found. Install llama.cpp and ensure its binaries are on PATH, or configure an explicit path in ~/.openmodel/config.json.');
     }
     const modelPath = manifest.artifactPaths?.[0];
     if (!modelPath) {
