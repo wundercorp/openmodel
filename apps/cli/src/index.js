@@ -1,11 +1,11 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, stat } from 'node:fs/promises';
 import { parseArgs, getFlag } from './lib/args.js';
 import { getPaths } from './lib/paths.js';
 import { readConfig, writeConfig } from './lib/config.js';
 import { installModel } from './lib/install-model.js';
 import { findManifest, listManifests, removeManifest } from './lib/model-store.js';
 import { loadGateways, resolveReference } from './gateways/registry.js';
-import { getRuntimeInstallCommand, selectRuntime, runtimes } from './runtimes/index.js';
+import { getRuntimeInstallCommand, getRuntimeStatus, selectRuntime, runtimes } from './runtimes/index.js';
 import { startLocalServer } from './server/http.js';
 import { login, logout, whoami } from './lib/auth.js';
 import { commandExists, runProcess } from './lib/process.js';
@@ -44,6 +44,7 @@ Commands:
   logout
   whoami
   doctor
+  status [--json]
   pricing <provider> <model> --input-tokens N --output-tokens N
   usage summary|sync
   setup <claude-code|codex|openrouter|bs> [--launch] [--port 11435]
@@ -82,6 +83,7 @@ export async function main(argv) {
   if (command === 'logout') return logout();
   if (command === 'whoami') return process.stdout.write(`${JSON.stringify(await whoami(), null, 2)}\n`);
   if (command === 'doctor') return doctorCommand();
+  if (command === 'status') return statusCommand(flags);
   if (command === 'pricing') return pricingCommand(positionals, flags);
   if (command === 'usage') return usageCommand(positionals, flags);
   if (command === 'setup') return telemetrySetupCommand(positionals, flags);
@@ -224,14 +226,98 @@ async function doctorCommand() {
   process.stdout.write(`Node ${process.version}\n`);
   process.stdout.write(`Data ${getPaths().home}\n`);
   for (const runtime of runtimes) {
-    const available = await runtime.available();
-    process.stdout.write(`${runtime.id}: ${available ? 'available' : 'not found'}\n`);
-    if (!available) {
+    const status = typeof runtime.status === 'function' ? await runtime.status() : { available: await runtime.available() };
+    process.stdout.write(`${runtime.id}: ${status.available ? 'available' : 'not found'}\n`);
+    if (status.available) {
+      process.stdout.write(`  binary: ${status.binary || '—'}\n`);
+      if (status.source) process.stdout.write(`  source: ${status.source}\n`);
+      if (status.version) process.stdout.write(`  version: ${status.version}\n`);
+    }
+    if (!status.available) {
       const installCommand = getRuntimeInstallCommand(runtime.id);
       if (installCommand) process.stdout.write(`  install: ${installCommand}\n`);
     }
   }
   process.stdout.write(`Gateways: ${(await loadGateways()).map((gateway) => gateway.id).join(', ')}\n`);
+}
+
+async function statusCommand(flags) {
+  const manifests = await listManifests();
+  const runtimeStatus = await getRuntimeStatus(manifests);
+  const modelStorageBytes = await calculateModelStorageBytes(manifests);
+
+  const result = {
+    platform: runtimeStatus.platform,
+    architecture: runtimeStatus.architecture,
+    node: process.version,
+    dataHome: getPaths().home,
+    runtimes: runtimeStatus.runtimes.map((r) => ({
+      id: r.id,
+      available: r.available,
+      binary: r.binary,
+      version: r.version,
+      source: r.source
+    })),
+    models: {
+      installed: manifests.length,
+      runnable: runtimeStatus.models.filter((m) => m.runnable).length,
+      storageBytes: modelStorageBytes,
+      items: manifests.map((m) => ({
+        id: m.storedId,
+        format: m.model?.format,
+        runnable: runtimeStatus.models.find((rm) => rm.id === m.storedId)?.runnable ?? false
+      }))
+    },
+    gateways: (await loadGateways()).map((gateway) => gateway.id),
+    warnings: []
+  };
+
+  for (const runtime of runtimeStatus.runtimes) {
+    if (!runtime.available) {
+      result.warnings.push(`${runtime.id} is not available`);
+    }
+  }
+  if (manifests.length > 0 && runtimeStatus.models.every((m) => !m.runnable)) {
+    result.warnings.push('No runnable models — install a runtime');
+  }
+
+  const asJson = flags['json'] === true;
+  if (asJson) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+
+  process.stdout.write(`Platform: ${result.platform} (${result.architecture})\n`);
+  process.stdout.write(`Node: ${result.node}\n`);
+  process.stdout.write(`Data: ${result.dataHome}\n`);
+  process.stdout.write(`Models: ${result.models.installed} installed, ${result.models.runnable} runnable, ${formatBytes(result.models.storageBytes)}\n`);
+  for (const runtime of result.runtimes) {
+    process.stdout.write(`  ${runtime.id}: ${runtime.available ? '✓' : '✗'} ${runtime.binary || ''}${runtime.version ? ` v${runtime.version}` : ''}\n`);
+  }
+  if (result.warnings.length > 0) {
+    process.stdout.write('Warnings:\n');
+    for (const warning of result.warnings) process.stdout.write(`  ⚠ ${warning}\n`);
+  }
+}
+
+async function calculateModelStorageBytes(manifests) {
+  let total = 0;
+  for (const manifest of manifests) {
+    for (const artifactPath of manifest.artifactPaths ?? []) {
+      try {
+        const s = await stat(artifactPath);
+        if (s.isFile()) total += s.size;
+      } catch {}
+    }
+  }
+  return total;
+}
+
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 
 export { loadGateways, resolveReference, startLocalServer };
