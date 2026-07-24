@@ -214,3 +214,6 @@ $RECYCLE.BIN/
 *.prof
 *.heapprofile
 *.cpuprofile
+
+!/apps/cli/src/lib/
+!/apps/cli/src/lib/**
