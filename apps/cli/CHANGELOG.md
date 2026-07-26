@@ -2,6 +2,20 @@
 
 All notable changes to the OpenModel CLI are documented in this file.
 
+## [0.1.20] - 2026-07-25
+
+### Added
+- `om box setup` and optional `--install` support for Box CLI onboarding
+- `om box create` for no-env Box provisioning, project upload, BuilderStudio `bs`, Claude Code or Codex prompts, named environment transfer, templates, systemd services, and HTTPS previews
+- `om box prompt` plus lifecycle passthrough commands for list, status, stop, resume, fork, SSH, SCP, hosting, desktop, deletion, extension, limits, and dashboard access
+- JSONL parsing and structured `--json` output for automation
+- Failure-safe cleanup that attempts to stop a newly created Box when post-creation setup fails
+
+### Changed
+- Repeated `--env` flags are retained without changing the existing last-value behavior of other CLI flags
+- BuilderStudio `bs` from `@wundercorp/bs` is now the primary Box agent; Claude Code and Codex remain secondary selections
+- The website and dashboard now lead with the BuilderStudio `bs` Agent Boxes onboarding path
+
 ## [0.1.18] - 2026-07-25
 
 ### Added

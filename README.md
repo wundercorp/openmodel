@@ -15,6 +15,7 @@ It provides:
 - `om serve` with OpenAI-compatible and Ollama-compatible local endpoints
 - `om capacity` for pricing and publishing provider GPU inventory
 - `om provider` for worker enrollment, heartbeats, assignment processing, earnings, and payouts
+- `om box` for isolated BuilderStudio `bs` agent VMs, with Claude Code and Codex as secondary options
 - A hyperscaler master control plane with reservations, metering, fee snapshots, disputes, and settlement states
 - A dashboard GPU marketplace with worker health, earnings, payout setup, and public availability
 - Explicit gateway package registration with a versioned SDK contract
@@ -83,6 +84,27 @@ The local server supports:
 - `POST /api/generate`
 
 The web dashboard uses the catalog and install-job endpoints for a one-click starter-model download with local progress reporting. Its Metrics route remains usable without authentication for local request counts, estimated token usage, latency, throughput, runtime activity, per-model usage, and recent requests. Authenticated sessions also load the Wundership monthly allowance, provider/model pricing estimates, local-versus-cloud cost comparisons, usage and cost charts, and idempotent usage synchronization. Installation and metrics-reset requests remain restricted to configured browser origins.
+
+## Agent VMs with Box
+
+OpenModel uses Box for isolated VM lifecycle and installs [BuilderStudio `bs`](https://www.npmjs.com/package/@wundercorp/bs) as the primary coding agent inside each VM. Claude Code and Codex remain secondary choices.
+
+```bash
+npm install --global @wundercorp/openmodel
+curl -fsSL https://box.ascii.dev/install | sh
+export BOX_API_KEY=your_box_api_key
+export OPENROUTER_API_KEY=your_openrouter_api_key
+om box setup
+om box create "Inspect this repository and run the tests" \
+  --project . \
+  --env OPENROUTER_API_KEY
+```
+
+`om box create` provisions a no-env VM, uploads the selected project, installs `@wundercorp/bs` when needed, initializes the remote workspace, and runs `bs gain` by default. Select `--bs-mode ask|plan|agent|swarm` for other BuilderStudio workflows. Use `--agent claude-code` or `--agent codex` to opt into the secondary Box-native providers.
+
+OpenModel can also run setup commands, install restartable systemd services, expose private HTTPS previews, and pass through stop, resume, fork, SSH, and other Box lifecycle commands. It attempts to stop newly created Boxes automatically when post-creation configuration fails.
+
+The public landing page and authenticated dashboard include the same primary-`bs` onboarding flow. See [`docs/box-agent-vms.md`](docs/box-agent-vms.md) for detailed usage and security guidance.
 
 ## GPU provider marketplace
 

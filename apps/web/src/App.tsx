@@ -45,6 +45,7 @@ type LocalApiState = "idle" | "loading" | "connected" | "offline";
 type ModelTestState = "idle" | "running" | "complete" | "error";
 type DashboardRoute =
   | "overview"
+  | "agents"
   | "capacity"
   | "models"
   | "resources"
@@ -86,6 +87,7 @@ const dashboardRouteItems: Array<{
   label: string;
 }> = [
   { route: "overview", label: "Overview" },
+  { route: "agents", label: "Agent Boxes" },
   { route: "capacity", label: "GPU Capacity" },
   { route: "models", label: "Models" },
   { route: "resources", label: "Resources" },
@@ -96,6 +98,7 @@ const dashboardRouteItems: Array<{
 
 const dashboardRouteIconNames: Record<DashboardRoute, IconName> = {
   overview: "dashboard",
+  agents: "box",
   capacity: "server",
   models: "box",
   resources: "file",
@@ -521,6 +524,7 @@ function SiteHeader({
       </a>
 
       <nav className="nav-links">
+        <a href="/#agents">[AGENT BOXES]</a>
         <a href="/#gateways">[GATEWAYS]</a>
         <a href="/#api">[API]</a>
         <a href="/dashboard">[DASHBOARD]</a>
@@ -613,8 +617,9 @@ function LandingPage() {
           <Badge>GATEWAY-FIRST LOCAL INFERENCE</Badge>
           <h1>LLM INFERENCE GATEWAY</h1>
           <p className="lead">
-            Download and run language models locally, monitor telemetry, track
-            token usage and costs, and more.
+            Download and run language models locally, or launch isolated Box
+            VMs with BuilderStudio bs as the primary agent and Claude Code or
+            Codex as secondary choices.
           </p>
 
           <div className="hero-actions">
@@ -658,6 +663,69 @@ Installed owner-repo-model-gguf as local.
 
 $ om serve local --port 11435
 OpenModel local API listening on http://127.0.0.1:11435`}</CodeBlock>
+        </Card>
+      </section>
+
+
+      <section id="agents" className="section split-section">
+        <div>
+          <Badge>AGENT COMPUTE</Badge>
+          <h2>ONE COMMAND TO AN ISOLATED AGENT VM</h2>
+          <p>
+            OpenModel uses Box for isolated VM lifecycle, installs
+            @wundercorp/bs inside the workspace, and starts a BuilderStudio
+            coding agent by default. Claude Code and Codex remain explicit
+            secondary choices. Stop the Box when work ends to snapshot the
+            filesystem and pause billing.
+          </p>
+          <ul>
+            <li>Project upload through Box SCP</li>
+            <li>BuilderStudio bs installed and initialized automatically</li>
+            <li>Claude Code and Codex secondary presets</li>
+            <li>Private HTTPS hosting for previews</li>
+            <li>Stop, resume, and fork lifecycle commands</li>
+          </ul>
+          <div className="hero-actions">
+            <Button
+              onClick={() =>
+                navigator.clipboard.writeText(
+                  'om box create "Inspect this repository and run the tests" --project . --env OPENROUTER_API_KEY',
+                )
+              }
+            >
+              COPY AGENT BOX COMMAND
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => window.location.assign("/dashboard?view=agents")}
+            >
+              OPEN SETUP GUIDE
+            </Button>
+          </div>
+        </div>
+
+        <Card>
+          <div className="terminal-title">
+            <span></span>
+            <span></span>
+            <span></span>
+            <strong>OPENMODEL::BOX</strong>
+          </div>
+          <CodeBlock>{`$ npm i -g @wundercorp/openmodel
+$ curl -fsSL https://box.ascii.dev/install | sh
+$ export BOX_API_KEY=...
+$ export OPENROUTER_API_KEY=...
+$ om box setup
+Box is ready for OpenModel (api-key).
+
+$ om box create "Run the tests" --project . --env OPENROUTER_API_KEY
+Creating an isolated Box VM...
+Uploading project...
+Installing @wundercorp/bs inside the Box...
+Running the BuilderStudio bs gain agent...
+Box ready: bx_example
+Next: om box prompt bx_example "Describe the next task" --agent bs --workdir /home/user/project
+Pause billing: om box stop bx_example`}</CodeBlock>
         </Card>
       </section>
 
@@ -1700,6 +1768,21 @@ function DashboardPage({
       .map((part) => part.slice(0, 1).toUpperCase())
       .join("") || "OM";
   const installCommand = "npm install -g @wundercorp/openmodel";
+  const boxCliInstallCommand = "curl -fsSL https://box.ascii.dev/install | sh";
+  const boxSetupCommand =
+    "export BOX_API_KEY=your_box_api_key\nexport OPENROUTER_API_KEY=your_openrouter_api_key\nom box setup";
+  const bsBoxCreateCommand =
+    'om box create "Inspect the repository, run tests, and implement the next useful fix" --project . --env OPENROUTER_API_KEY';
+  const claudeBoxCreateCommand =
+    'om box create "Inspect the repository, run tests, and report the next useful change" --project . --agent claude-code';
+  const codexBoxCreateCommand =
+    'om box create "Inspect the repository, run tests, and report the next useful change" --project . --agent codex';
+  const boxPromptCommand =
+    'om box prompt bx_your_box_id "Implement the approved change and verify it" --agent bs --workdir /home/user/your-project';
+  const boxStopCommand = "om box stop bx_your_box_id";
+  const boxResumeCommand = "om box resume bx_your_box_id";
+  const boxTemplateCommand =
+    "om box create --template bx_template_id --agent bs";
   const pullCommand = "om pull hf://owner/repo/model.gguf --alias local";
   const serveCommand = "om serve --port 11435";
   const runtimeVerifyCommand = "om doctor";
@@ -2047,6 +2130,19 @@ function DashboardPage({
                 </Card>
 
                 <Card className="dashboard-overview-action-card">
+                  <span className="dashboard-panel-kicker">AGENT VM</span>
+                  <h3>Launch BuilderStudio bs in a Box</h3>
+                  <p>
+                    Copy the current project into an isolated cloud VM, run the
+                    primary bs agent or a secondary provider, and pause billing
+                    without losing the workspace.
+                  </p>
+                  <Button onClick={() => navigateDashboard("agents")}>
+                    Open Agent Boxes
+                  </Button>
+                </Card>
+
+                <Card className="dashboard-overview-action-card">
                   <span className="dashboard-panel-kicker">GPU PROVIDER</span>
                   <h3>List GPU capacity</h3>
                   <p>
@@ -2121,6 +2217,250 @@ function DashboardPage({
                   </Button>
                 </Card>
               </div>
+            </section>
+          ) : null}
+
+          {activeRoute === "agents" ? (
+            <section className="dashboard-section dashboard-page-view dashboard-agent-boxes">
+              <div className="dashboard-page-heading">
+                <div>
+                  <Badge>BOX AGENT VMS</Badge>
+                  <h1>Launch an isolated coding agent</h1>
+                  <p>
+                    OpenModel creates a no-env Box, uploads the selected project,
+                    installs @wundercorp/bs, and starts BuilderStudio as the
+                    primary coding agent. Claude Code and Codex remain secondary
+                    choices. The Box remains yours to SSH into, stop, resume, or
+                    fork.
+                  </p>
+                </div>
+                <div className="dashboard-page-actions">
+                  <a
+                    className="button button-outline"
+                    href="https://box.ascii.dev/box/dashboard?tab=api-keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Create Box API key
+                  </a>
+                  <a
+                    className="button button-ghost"
+                    href="https://box.ascii.dev/box/dashboard?tab=secrets"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Configure agent secrets
+                  </a>
+                  <a
+                    className="button button-ghost"
+                    href="https://docs.ascii.dev/box/quickstart"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Box documentation
+                  </a>
+                  <a
+                    className="button button-ghost"
+                    href="https://www.npmjs.com/package/@wundercorp/bs"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    BuilderStudio bs package
+                  </a>
+                </div>
+              </div>
+
+              <div className="dashboard-agent-box-principles">
+                <Card>
+                  <span className="dashboard-panel-kicker">ISOLATION</span>
+                  <strong>NO-ENV BY DEFAULT</strong>
+                  <p>
+                    New agent VMs do not inherit account-wide credentials. Copy
+                    only the named variables a task requires, including
+                    OPENROUTER_API_KEY for the default bs agent.
+                  </p>
+                </Card>
+                <Card>
+                  <span className="dashboard-panel-kicker">PRIMARY AGENT</span>
+                  <strong>BUILDERSTUDIO BS</strong>
+                  <p>
+                    OpenModel installs @wundercorp/bs inside the VM and runs
+                    workspace-aware tasks through bs gain by default.
+                  </p>
+                </Card>
+                <Card>
+                  <span className="dashboard-panel-kicker">SCALE</span>
+                  <strong>FORK A TEMPLATE</strong>
+                  <p>
+                    Prepare dependencies once, stop the template Box, and fork
+                    it for fast per-user or per-task agent workspaces.
+                  </p>
+                </Card>
+              </div>
+
+              <Card className="dashboard-agent-box-setup">
+                <div className="dashboard-panel-heading">
+                  <div>
+                    <span className="dashboard-panel-kicker">FIRST RUN</span>
+                    <h3>Set up OpenModel, Box, and model access</h3>
+                    <p>
+                      Keep the Box and OpenRouter keys in your shell secret
+                      manager. OpenModel forwards OPENROUTER_API_KEY only when it
+                      is explicitly named, then installs bs inside the VM. Do not
+                      commit credentials to the project.
+                    </p>
+                  </div>
+                </div>
+                <div className="dashboard-command-list">
+                  <DashboardCommand
+                    index="01"
+                    title="INSTALL OPENMODEL"
+                    command={installCommand}
+                    copied={copiedCommand === "box-install-openmodel"}
+                    onCopy={() =>
+                      void copyCommand("box-install-openmodel", installCommand)
+                    }
+                  />
+                  <DashboardCommand
+                    index="02"
+                    title="INSTALL THE BOX CLI"
+                    command={boxCliInstallCommand}
+                    copied={copiedCommand === "box-install-cli"}
+                    onCopy={() =>
+                      void copyCommand("box-install-cli", boxCliInstallCommand)
+                    }
+                  />
+                  <DashboardCommand
+                    index="03"
+                    title="AUTHENTICATE OPENMODEL WITH BOX"
+                    command={boxSetupCommand}
+                    copied={copiedCommand === "box-setup"}
+                    onCopy={() => void copyCommand("box-setup", boxSetupCommand)}
+                  />
+                </div>
+              </Card>
+
+              <div className="dashboard-agent-provider-grid">
+                <Card className="dashboard-overview-action-card">
+                  <span className="dashboard-panel-kicker">PRIMARY · BUILDERSTUDIO BS</span>
+                  <h3>Start the default bs agent Box</h3>
+                  <p>
+                    Upload the current directory, install @wundercorp/bs in the
+                    VM, initialize the workspace, and run bs gain.
+                  </p>
+                  <Button
+                    onClick={() =>
+                      void copyCommand("box-create-bs", bsBoxCreateCommand)
+                    }
+                  >
+                    {copiedCommand === "box-create-bs"
+                      ? "Copied"
+                      : "Copy bs command"}
+                  </Button>
+                </Card>
+
+                <Card className="dashboard-overview-action-card">
+                  <span className="dashboard-panel-kicker">SECONDARY · CLAUDE CODE</span>
+                  <h3>Start a Claude agent Box</h3>
+                  <p>
+                    Upload the current directory, then let Claude Code inspect
+                    and work inside the isolated VM.
+                  </p>
+                  <Button
+                    onClick={() =>
+                      void copyCommand("box-create-claude", claudeBoxCreateCommand)
+                    }
+                  >
+                    {copiedCommand === "box-create-claude"
+                      ? "Copied"
+                      : "Copy Claude command"}
+                  </Button>
+                </Card>
+
+                <Card className="dashboard-overview-action-card">
+                  <span className="dashboard-panel-kicker">SECONDARY · CODEX</span>
+                  <h3>Start a Codex agent Box</h3>
+                  <p>
+                    Use the same upload and lifecycle flow while selecting Codex
+                    as the in-Box agent provider.
+                  </p>
+                  <Button
+                    onClick={() =>
+                      void copyCommand("box-create-codex", codexBoxCreateCommand)
+                    }
+                  >
+                    {copiedCommand === "box-create-codex"
+                      ? "Copied"
+                      : "Copy Codex command"}
+                  </Button>
+                </Card>
+              </div>
+
+              <Card className="dashboard-agent-box-setup">
+                <div className="dashboard-panel-heading">
+                  <div>
+                    <span className="dashboard-panel-kicker">KEEP WORKING</span>
+                    <h3>Prompt and manage the Box</h3>
+                    <p>
+                      Replace the sample Box id and remote project directory with
+                      values returned by <code> om box create</code>. Protected
+                      preview URLs should be treated as secrets because they
+                      contain an access token.
+                    </p>
+                  </div>
+                </div>
+                <div className="dashboard-command-list">
+                  <DashboardCommand
+                    index="01"
+                    title="SEND THE NEXT AGENT TASK"
+                    command={boxPromptCommand}
+                    copied={copiedCommand === "box-prompt"}
+                    onCopy={() =>
+                      void copyCommand("box-prompt", boxPromptCommand)
+                    }
+                  />
+                  <DashboardCommand
+                    index="02"
+                    title="SNAPSHOT AND PAUSE BILLING"
+                    command={boxStopCommand}
+                    copied={copiedCommand === "box-stop"}
+                    onCopy={() => void copyCommand("box-stop", boxStopCommand)}
+                  />
+                  <DashboardCommand
+                    index="03"
+                    title="RESUME THE WORKSPACE"
+                    command={boxResumeCommand}
+                    copied={copiedCommand === "box-resume"}
+                    onCopy={() =>
+                      void copyCommand("box-resume", boxResumeCommand)
+                    }
+                  />
+                  <DashboardCommand
+                    index="04"
+                    title="FORK A PREBUILT TEMPLATE"
+                    command={boxTemplateCommand}
+                    copied={copiedCommand === "box-template"}
+                    onCopy={() =>
+                      void copyCommand("box-template", boxTemplateCommand)
+                    }
+                  />
+                </div>
+              </Card>
+
+              <Card className="dashboard-agent-box-note">
+                <strong>Optional app preview</strong>
+                <p>
+                  Add <code>--setup-command</code>, <code>--start-command</code>,
+                  and <code>--port</code> to install a project, register its
+                  process as a systemd service, and return a stable private HTTPS
+                  URL. Use <code>--public</code> only for intentionally open apps.
+                </p>
+                <CodeBlock>{`om box create "Verify the app starts" --project . \\
+  --env OPENROUTER_API_KEY \\
+  --setup-command "npm install && npm run build" \\
+  --start-command "npm start -- --host 0.0.0.0 --port 3000" \\
+  --port 3000`}</CodeBlock>
+              </Card>
             </section>
           ) : null}
 

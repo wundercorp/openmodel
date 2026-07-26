@@ -70,8 +70,8 @@ export async function runProcess(command, argumentsList, options = {}) {
     child.once('error', settleReject);
     child.once('exit', (code, signal) => {
       if (settled) return;
-      if (code === 0) {
-        settleResolve({ code, stdout, stderr });
+      if (code === 0 || options.allowFailure) {
+        settleResolve({ code, signal, stdout, stderr });
         return;
       }
       settleReject(new Error(`${command} exited with ${code ?? signal}${stderr ? `: ${stderr.trim()}` : ''}`));

@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile, stat } from 'node:fs/promises';
 import { parseArgs, getFlag } from './lib/args.js';
+import { boxCommand } from './lib/box.js';
 import { getPaths } from './lib/paths.js';
 import { readConfig, writeConfig } from './lib/config.js';
 import { installModel } from './lib/install-model.js';
@@ -64,6 +65,7 @@ Commands:
   pricing <provider> <model> --input-tokens N --output-tokens N
   usage summary|sync
   setup <claude-code|codex|openrouter|bs> [--launch] [--port 11435]
+  box setup|create|prompt|list|status|stop|resume|fork|ssh|host
   telemetry setup <claude-code|codex|openrouter|bs> [--launch] [--port 11435]
   telemetry summary|events|sync|emit
   capacity expose|list|mine|publish|pause|heartbeat|detect
@@ -107,6 +109,7 @@ export async function main(argv) {
   if (command === 'telemetry') return telemetryCommand(positionals, flags);
   if (command === 'capacity') return capacityCommand(positionals, flags);
   if (command === 'provider') return providerCommand(positionals, flags);
+  if (command === 'box') return boxCommand(positionals, flags);
   throw new Error(`Unknown command "${command}". Run om help.`);
 }
 

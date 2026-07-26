@@ -1,3 +1,5 @@
+const repeatableFlagNames = new Set(['env']);
+
 export function parseArgs(input) {
   const positionals = [];
   const flags = {};
@@ -8,21 +10,37 @@ export function parseArgs(input) {
       continue;
     }
     const [rawName, inlineValue] = value.slice(2).split('=', 2);
+    let parsedValue;
     if (inlineValue !== undefined) {
-      flags[rawName] = inlineValue;
-      continue;
-    }
-    const nextValue = input[index + 1];
-    if (nextValue !== undefined && !nextValue.startsWith('--')) {
-      flags[rawName] = nextValue;
-      index += 1;
+      parsedValue = inlineValue;
     } else {
-      flags[rawName] = true;
+      const nextValue = input[index + 1];
+      if (nextValue !== undefined && !nextValue.startsWith('--')) {
+        parsedValue = nextValue;
+        index += 1;
+      } else {
+        parsedValue = true;
+      }
+    }
+    if (!repeatableFlagNames.has(rawName) || flags[rawName] === undefined) {
+      flags[rawName] = parsedValue;
+    } else if (Array.isArray(flags[rawName])) {
+      flags[rawName].push(parsedValue);
+    } else {
+      flags[rawName] = [flags[rawName], parsedValue];
     }
   }
   return { positionals, flags };
 }
 
 export function getFlag(flags, name, fallbackValue = undefined) {
-  return flags[name] === undefined ? fallbackValue : flags[name];
+  const value = flags[name];
+  if (value === undefined) return fallbackValue;
+  return Array.isArray(value) ? value[value.length - 1] : value;
+}
+
+export function getFlags(flags, name) {
+  const value = flags[name];
+  if (value === undefined) return [];
+  return Array.isArray(value) ? value : [value];
 }

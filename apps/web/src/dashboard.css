@@ -3630,3 +3630,59 @@ body.dashboard-interface-active::after {
     text-align: center;
   }
 }
+
+.dashboard-agent-box-principles,
+.dashboard-agent-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.dashboard-agent-provider-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dashboard-agent-box-principles .card {
+  display: grid;
+  min-height: 180px;
+  align-content: start;
+  gap: 12px;
+  padding: 22px;
+}
+
+.dashboard-agent-box-principles strong,
+.dashboard-agent-box-note > strong {
+  color: var(--dashboard-text);
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.dashboard-agent-box-principles p,
+.dashboard-agent-box-note p {
+  margin: 0;
+  color: var(--dashboard-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.dashboard-agent-box-setup,
+.dashboard-agent-box-note {
+  margin-top: 12px;
+  padding: 24px;
+}
+
+.dashboard-agent-box-note .code-block {
+  margin-top: 18px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--dashboard-surface-muted);
+  color: var(--dashboard-text-secondary);
+  text-shadow: none;
+}
+
+@media (max-width: 960px) {
+  .dashboard-agent-box-principles,
+  .dashboard-agent-provider-grid {
+    grid-template-columns: 1fr;
+  }
+}

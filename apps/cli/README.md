@@ -18,6 +18,7 @@ It gives you one command, `om`, for working with GGUF artifacts, existing Ollama
 - Keep downloaded models, manifests, aliases, plugins, and authentication data in an isolated OpenModel data directory
 - Authenticate with the OpenModel cloud layer through OAuth device authorization
 - Detect and expose provider GPU capacity through `api.openmodel.sh` with `api.walton.bot` fallback
+- Launch isolated Box VMs with BuilderStudio `bs` as the primary agent and Claude Code or Codex as secondary options
 
 ## Requirements
 
@@ -115,9 +116,71 @@ om run qwen2.5:3b "Explain gateway interoperability."
 | `om provider earnings` | Show pending, available, held, and paid earnings |
 | `om provider payout-profile` | Configure a tokenized payout destination |
 | `om provider payout` | Request settlement of available earnings |
+| `om box setup [--install]` | Install or authenticate the Box CLI |
+| `om box create [prompt]` | Create an isolated Box VM, optionally upload a project, and run an agent |
+| `om box prompt <box-id> <prompt>` | Continue work with BuilderStudio `bs`, Claude Code, or Codex in an existing Box |
+| `om box stop|resume|fork|ssh|host ...` | Manage Box lifecycle and hosted previews |
 | `om help` | Show CLI help |
 
 Aliases are available for `om list` as `om ls` and `om remove` as `om rm`.
+
+## Run coding agents in Box VMs
+
+OpenModel uses [Box](https://box.ascii.dev) for isolated VM lifecycle and [BuilderStudio `bs`](https://www.npmjs.com/package/@wundercorp/bs) as the primary in-VM coding agent. Claude Code and Codex remain secondary options.
+
+Install and authenticate:
+
+```bash
+npm install --global @wundercorp/openmodel
+curl -fsSL https://box.ascii.dev/install | sh
+export BOX_API_KEY=your_box_api_key
+om box setup
+```
+
+Start the default BuilderStudio agent. A fresh no-env VM needs explicit OpenRouter model access:
+
+```bash
+export OPENROUTER_API_KEY=your_openrouter_api_key
+
+om box create \
+  "Inspect this repository, run its tests, and implement the next useful fix" \
+  --project . \
+  --env OPENROUTER_API_KEY
+```
+
+OpenModel installs `@wundercorp/bs` inside the VM, initializes the uploaded project, and runs `bs gain`. Choose another BuilderStudio workflow with `--bs-mode ask|plan|agent|swarm`.
+
+Continue work:
+
+```bash
+om box prompt bx_your_box_id \
+  "Implement the approved change" \
+  --agent bs \
+  --workdir /home/user/your-project
+```
+
+Use a secondary agent explicitly:
+
+```bash
+om box create "Review the repository" --project . --agent claude-code
+om box create "Review the repository" --project . --agent codex
+```
+
+For an application preview, OpenModel can install a restartable systemd service and request a private Box HTTPS URL:
+
+```bash
+om box create \
+  "Verify the application starts" \
+  --project . \
+  --env OPENROUTER_API_KEY \
+  --setup-command "npm ci" \
+  --start-command "npm run dev -- --host 0.0.0.0" \
+  --port 3000
+```
+
+Use `--public` only when the preview is intentionally public. Build a prepared VM once, stop it, and use `--template bx_template_id` for fast forks. If upload, setup, agent installation, service installation, hosting, or the initial prompt fails, OpenModel attempts to stop the new Box automatically.
+
+See [`../../docs/box-agent-vms.md`](../../docs/box-agent-vms.md) for the full command and security guide.
 
 ## Become a GPU provider
 
