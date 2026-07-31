@@ -10,7 +10,7 @@
     "test:bundle": "node scripts/bundle-smoke.mjs"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "3.1095.0",
+    "@aws-sdk/client-dynamodb": "3.1097.0",
     "@aws-sdk/lib-dynamodb": "3.1095.0"
   },
   "devDependencies": {
